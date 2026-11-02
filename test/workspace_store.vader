@@ -2,11 +2,9 @@
 " and the pruning of worktrees that are no longer on disk.
 
 Before:
-  call claude#workspace#_reset()
-  call claude#store#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
   let g:_saved_cwd   = getcwd()
-  let g:_saved_store = get(g:, 'claude_workspace_store', '')
-  let g:_saved_dir   = get(g:, 'claude_workspace_dir', '')
 
   let g:_root = tempname()
   call mkdir(g:_root, 'p')
@@ -23,43 +21,41 @@ Before:
   call system(g:_git . 'branch feature')
 
   let g:_path = g:_root . '/workspaces.json'
-  let g:claude_workspace_store = g:_path
-  let g:claude_workspace_dir   = ''
+  call kimi#store#_set_root(g:_root)
   execute 'cd ' . fnameescape(g:_repo)
 
 After:
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  let g:claude_workspace_store = g:_saved_store
-  let g:claude_workspace_dir   = g:_saved_dir
-  call claude#workspace#_reset()
-  call claude#store#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
   call delete(g:_root, 'rf')
 
 " ── path resolution ──────────────────────────────────────────────────────────
 
-Execute (path honours g:claude_workspace_store):
-  AssertEqual g:_path, claude#store#workspace_path()
+Execute (the workspace store lives under the store root):
+  AssertEqual g:_path, kimi#store#workspace_path()
 
-Execute (path falls back to data/workspaces.json inside the plugin):
-  let g:claude_workspace_store = ''
-  let path = claude#store#workspace_path()
+Execute (the default root is data/ inside the plugin):
+  call kimi#store#_set_root('')
+  let path = kimi#store#workspace_path()
   Assert path =~# 'data/workspaces\.json$',
         \ 'default store should live in the plugin data dir, got ' . path
+  call kimi#store#_set_root(g:_root)
 
 " ── round trip ───────────────────────────────────────────────────────────────
 
 Execute (a created workspace survives a reload of the store):
-  let ws = claude#workspace#create('feature', '')
-  call claude#store#_reset()
-  call claude#workspace#_reset()
-  let back = claude#workspace#get('feature')
+  let ws = kimi#workspace#create('feature', '')
+  call kimi#store#_reset()
+  call kimi#workspace#_reset()
+  let back = kimi#workspace#get('feature')
   AssertEqual ws.name,    back.name
   AssertEqual ws.branch,  back.branch
   AssertEqual ws.path,    back.path
   AssertEqual ws.project, back.project
 
 Execute (workspaces are keyed by repository root):
-  call claude#workspace#create('feature', '')
+  call kimi#workspace#create('feature', '')
   let data = json_decode(join(readfile(g:_path), "\n"))
   AssertEqual 1, data.version
   Assert has_key(data.workspaces, g:_repo),
@@ -68,8 +64,8 @@ Execute (workspaces are keyed by repository root):
 
 Execute (a corrupt store is backed up and read as empty):
   call writefile(['{not json'], g:_path)
-  call claude#store#_reset()
-  AssertEqual [], claude#workspace#list()
+  call kimi#store#_reset()
+  AssertEqual [], kimi#workspace#list()
   Assert filereadable(g:_path . '.bak'),
         \ 'the unreadable store should have been kept'
 
@@ -77,8 +73,8 @@ Execute (a record written by an older build loads with its fields filled in):
   call mkdir(g:_root . '/legacy', 'p')
   call writefile([json_encode({'version': 1, 'workspaces':
         \ {g:_repo: {'old': {'path': g:_root . '/legacy'}}}})], g:_path)
-  call claude#store#_reset()
-  let ws = claude#workspace#get('old')
+  call kimi#store#_reset()
+  let ws = kimi#workspace#get('old')
   AssertEqual 'old', ws.name, 'the id stands in for a missing name'
   AssertEqual '',    ws.branch
   AssertEqual 0,     ws.created
@@ -86,13 +82,13 @@ Execute (a record written by an older build loads with its fields filled in):
 " ── pruning ──────────────────────────────────────────────────────────────────
 
 Execute (a record whose directory is gone is dropped and written back):
-  call claude#workspace#create('feature', '')
+  call kimi#workspace#create('feature', '')
   call writefile([json_encode({'version': 1, 'workspaces':
         \ {g:_repo: {'ghost': {'name': 'ghost', 'branch': 'x',
         \                      'path': g:_root . '/gone', 'project': g:_repo,
         \                      'created': 1}}}})], g:_path)
-  call claude#store#_reset()
-  AssertEqual [], claude#workspace#list()
+  call kimi#store#_reset()
+  AssertEqual [], kimi#workspace#list()
   let data = json_decode(join(readfile(g:_path), "\n"))
   AssertEqual {}, data.workspaces[g:_repo],
         \ 'the pruned list should have been persisted'
@@ -103,7 +99,7 @@ Execute (a plain directory has no workspaces and creates none):
   let plain = g:_root . '/plain'
   call mkdir(plain, 'p')
   execute 'cd ' . fnameescape(plain)
-  call claude#workspace#_reset()
-  AssertEqual '', claude#workspace#project_root()
-  AssertEqual [], claude#workspace#list()
-  AssertEqual {}, claude#workspace#create('feature', '')
+  call kimi#workspace#_reset()
+  AssertEqual '', kimi#workspace#project_root()
+  AssertEqual [], kimi#workspace#list()
+  AssertEqual {}, kimi#workspace#create('feature', '')

@@ -2,23 +2,29 @@
 "
 " Persists small dictionaries to JSON so they survive a Vim restart. Three of
 " them exist: session naming and grouping metadata (see
-" autoload/claude/session.vim), per-branch diff bases (see
-" autoload/claude/difftree.vim), and the git worktrees a session can be given
-" to work in (see autoload/claude/workspace.vim). Runtime state — buffer
+" autoload/kimi/session.vim), per-branch diff bases (see
+" autoload/kimi/difftree.vim), and the git worktrees a session can be given
+" to work in (see autoload/kimi/workspace.vim). Runtime state — buffer
 " numbers, jobs, status — is never written here.
 "
 " The *_at() functions take a path and a payload key so the stores share one
 " implementation of the awkward parts: atomic write, corruption recovery,
 " schema-version refusal and graceful degradation when the file cannot be
-" written. claude#store#load()/save() are the session-store wrappers.
+" written. kimi#store#load()/save() are the session-store wrappers.
 "
 " This module is deliberately pure I/O: no terminal, no jobs, no git. That
 " makes it testable in isolation (test/store.vader).
 
 " Plugin root, resolved once while this script is being sourced. Inside a
 " function <sfile> expands to the function name, so it must be captured here.
-"   <root>/autoload/claude/store.vim  :h:h:h  ->  <root>
+"   <root>/autoload/kimi/store.vim  :h:h:h  ->  <root>
 let s:plugin_root = expand('<sfile>:p:h:h:h')
+
+" Where the three stores live: a data/ directory inside the plugin, which
+" keeps the plugin self-contained at the cost of being wiped by a plugin
+" reinstall. Tests redirect it through kimi#store#_set_root() so nothing they
+" write lands in the plugin directory.
+let s:root = s:plugin_root . '/data'
 
 " Schema version this build writes. A store carrying a *higher* version was
 " written by a newer plugin, so we read it but refuse to write it back.
@@ -30,35 +36,19 @@ let s:warned = {}
 " Set when the loaded store came from a future schema version.
 let s:read_only = v:false
 
-" Path of the store file. g:claude_session_store wins when set; otherwise the
-" file lives inside the plugin directory, which keeps the plugin
-" self-contained at the cost of being wiped by a plugin reinstall.
-function! claude#store#path() abort
-  let l:override = get(g:, 'claude_session_store', '')
-  if !empty(l:override)
-    return expand(l:override)
-  endif
-  return s:plugin_root . '/data/sessions.json'
+function! kimi#store#path() abort
+  return s:root . '/sessions.json'
 endfunction
 
-" Path of the per-branch diff base store, with the same override-or-plugin-dir
-" rule and the same reinstall caveat.
-function! claude#store#difftree_path() abort
-  let l:override = get(g:, 'claude_difftree_store', '')
-  if !empty(l:override)
-    return expand(l:override)
-  endif
-  return s:plugin_root . '/data/difftree.json'
+" Path of the per-branch diff base store, with the same rule and the same
+" reinstall caveat.
+function! kimi#store#difftree_path() abort
+  return s:root . '/difftree.json'
 endfunction
 
-" Path of the workspace store, following the same rule again
-" (g:claude_workspace_store, else the plugin's data directory).
-function! claude#store#workspace_path() abort
-  let l:override = get(g:, 'claude_workspace_store', '')
-  if !empty(l:override)
-    return expand(l:override)
-  endif
-  return s:plugin_root . '/data/workspaces.json'
+" Path of the workspace store, following the same rule again.
+function! kimi#store#workspace_path() abort
+  return s:root . '/workspaces.json'
 endfunction
 
 " Echo {msg} as a warning the first time {kind} is seen in this Vim session.
@@ -68,7 +58,7 @@ function! s:warn_once(kind, msg) abort
   endif
   let s:warned[a:kind] = 1
   echohl WarningMsg
-  echomsg 'claude.vim: ' . a:msg
+  echomsg 'kimi.vim: ' . a:msg
   echohl None
 endfunction
 
@@ -82,7 +72,7 @@ endfunction
 "
 " {key} is the payload key ("sessions", "bases", "workspaces"); {what} names
 " the store in warnings.
-function! claude#store#load_at(path, key, what) abort
+function! kimi#store#load_at(path, key, what) abort
   let s:read_only = v:false
 
   if !filereadable(a:path)
@@ -123,7 +113,7 @@ endfunction
 " Write {data} to {path} atomically. Returns 1 on success, 0 on failure.
 " A failure is warned about once and is never fatal: the caller keeps its
 " in-memory state and simply loses persistence for this Vim session.
-function! claude#store#save_at(path, data, what) abort
+function! kimi#store#save_at(path, data, what) abort
   if s:read_only
     return 0
   endif
@@ -163,39 +153,45 @@ endfunction
 
 " ── the session name store ───────────────────────────────────────────────────
 
-function! claude#store#load() abort
-  return claude#store#load_at(claude#store#path(), 'sessions', 'session store')
+function! kimi#store#load() abort
+  return kimi#store#load_at(kimi#store#path(), 'sessions', 'session store')
 endfunction
 
-function! claude#store#save(data) abort
-  return claude#store#save_at(claude#store#path(), a:data, 'session store')
+function! kimi#store#save(data) abort
+  return kimi#store#save_at(kimi#store#path(), a:data, 'session store')
 endfunction
 
 " Merge {entry} for {id} into the store and write it back. The file is
 " re-read first so a concurrent Vim instance's names are not clobbered
 " (last-writer-wins per key, not per file).
-function! claude#store#put(id, entry) abort
-  let l:data = claude#store#load()
+function! kimi#store#put(id, entry) abort
+  let l:data = kimi#store#load()
   let l:data.sessions[a:id] = a:entry
-  return claude#store#save(l:data)
+  return kimi#store#save(l:data)
 endfunction
 
 " Remove {id} from the store and write it back.
-function! claude#store#remove(id) abort
-  let l:data = claude#store#load()
+function! kimi#store#remove(id) abort
+  let l:data = kimi#store#load()
   if has_key(l:data.sessions, a:id)
     call remove(l:data.sessions, a:id)
   endif
-  return claude#store#save(l:data)
+  return kimi#store#save(l:data)
 endfunction
 
 " True when the loaded store came from a newer plugin and must not be written.
-function! claude#store#is_read_only() abort
+function! kimi#store#is_read_only() abort
   return s:read_only
 endfunction
 
 " Clear warn-once state and the read-only flag. Test seam.
-function! claude#store#_reset() abort
+function! kimi#store#_reset() abort
   let s:warned    = {}
   let s:read_only = v:false
+endfunction
+
+" Redirect all three stores into {dir}; '' restores the built-in root. Test
+" seam: keeps suite runs out of the plugin's own data directory.
+function! kimi#store#_set_root(dir) abort
+  let s:root = empty(a:dir) ? s:plugin_root . '/data' : a:dir
 endfunction

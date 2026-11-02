@@ -1,1 +1,0 @@
-../../.claude/hooks/claude-vim-status.mjs

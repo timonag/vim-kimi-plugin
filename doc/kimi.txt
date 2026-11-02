@@ -1,0 +1,259 @@
+*kimi.txt*  Kimi Code CLI sessions inside Vim
+
+Author:  fork of claude.vim (cordeiroph)
+License: MIT
+
+===============================================================================
+CONTENTS                                                        *kimi-contents*
+
+  1. Introduction ............................. |kimi-introduction|
+  2. Requirements ............................. |kimi-requirements|
+  3. Usage .................................... |kimi-usage|
+  4. Input window ............................. |kimi-input-window|
+  5. Session panel ............................ |kimi-session-panel|
+  6. Workspaces ............................... |kimi-workspaces|
+  7. Git diff tree ............................ |kimi-diff-tree|
+  8. Sessions on disk ......................... |kimi-sessions-on-disk|
+  9. Model switching .......................... |kimi-model|
+
+===============================================================================
+1. INTRODUCTION                                             *kimi-introduction*
+
+kimi.vim opens the Kimi Code CLI (command: `kimi`) in a Vim terminal split,
+giving you persistent AI sessions alongside your code.
+
+Run as many sessions as you like, name them, and switch between them from a
+NERDTree-style side panel grouped by what they're doing or by workspace and
+branch.
+
+The plugin has no configuration: every behaviour has one built-in value.
+
+===============================================================================
+2. REQUIREMENTS                                             *kimi-requirements*
+
+- Vim 8.1+ (with |+terminal|)
+- The `kimi` CLI on your $PATH (see https://www.kimi.com/code/docs/en/)
+- Optional: NERDTree, for the shared sidebar column
+
+===============================================================================
+3. USAGE                                                           *kimi-usage*
+
+                                                                *:KimiOpen*
+:KimiOpen        Focus a session, starting one if none is running.
+                                                                *:KimiToggle*
+:KimiToggle      Show or hide a kimi window.
+                                                                *:KimiClose*
+:KimiClose       End a session (the conversation stays resumable).
+                                                                *:KimiFocus*
+:KimiFocus       Move the cursor to a kimi window (enters insert mode).
+                                                                *:KimiNew*
+:KimiNew [name]  Start a session even when others are already running.
+                                                                *:KimiRename*
+:KimiRename [name]  Rename a session. With no argument the name is prompted.
+                                                                *:KimiExplain*
+:KimiExplain     Send the current file (normal mode) or the visual selection
+                 to a session with an "Explain …" prompt.
+                                                                *:KimiModel*
+:KimiModel       Switch models: sends a bare /model so the CLI's own picker
+                 opens. Model aliases are user configuration; the plugin has
+                 no list of its own.
+                                                                *:KimiResume*
+:KimiResume      Pick one of the closed sessions known for this directory
+                 and reopen it.
+                                                                *:KimiInput*
+:KimiInput       Toggle the input window for multi-line messages.
+
+Default mappings (normal mode): >
+
+  <leader>ko   :KimiOpen
+  <leader>kt   :KimiToggle
+  <leader>kx   :KimiClose
+  <leader>kf   :KimiFocus
+  <leader>kn   :KimiNew
+  <leader>ks   :KimiSessions
+  <leader>kd   :KimiDiff
+  <leader>kw   :KimiWorkspaces
+  <C-a>        :KimiSidebars
+  <leader>ke   :KimiExplain (also visual mode)
+  <leader>km   :KimiModel
+  <leader>kr   :KimiResume
+  <leader>ki   :KimiInput
+  <leader>kh/l/k/j  window navigation
+<
+When several sessions are running, commands that need just one show a picker;
+when only one is running, it is used without prompting.
+
+Starting a session without naming it on the command line asks for a branch
+first, and gives the session its own checkout of that branch — see
+|kimi-workspaces|.
+
+Inside the kimi terminal, press <Esc><Esc> to enter terminal-normal mode (so
+Vim handles the cursor and mouse). Single <Esc> is passed through to the CLI
+(interrupt, close popup).
+
+===============================================================================
+4. INPUT WINDOW                                               *kimi-input-window*
+
+<leader>ki toggles a dedicated buffer for writing long, multi-line prompts.
+It opens as a 10-line split at the bottom. Pressing <leader>ki again discards
+the content and closes the window. To preserve your text, press <C-c> instead
+— it saves a draft and hides the window; reopening restores it.
+
+The buffer is a .md file, so syntax highlighting works out of the box.
+
+Keys: >
+
+  <C-s> (insert or normal)   Send the message and close the window
+  <C-c> (normal)             Save draft and hide the window
+  q (normal)                 Discard draft and close
+<
+Type `/` to trigger slash-command completion — built-in commands plus skills
+found in the CLI's skill directories. Type `@` to complete file paths (via
+`rg`, with basename matching, e.g. `@kim` matches `doc/kimi.txt`).
+
+A session is opened automatically if none is running.
+
+===============================================================================
+5. SESSION PANEL                                             *kimi-session-panel*
+
+<leader>ks toggles a panel listing every session — the ones running now and
+the ones you can resume. It has two views, swapped with `g`.
+
+By state, which is what it opens on: >
+
+  Kimi Sessions           2 waiting
+
+  ▾ Needs you (2)
+    ✻ pick a diff base        wt · 2m
+    ✻ rerun the tests?      root · 5m
+  ▾ Working (1)
+    ● panel rework          root · 1m
+  ▾ Idle (1)
+    ○ user_interface        root · 2h
+  ▸ Done (10)
+<
+By place — group, then branch — for when the question really is what is
+happening in that checkout.
+
+`✻` waiting for you, `●` working, `○` idle, `✗` closed but resumable.
+
+Waiting is read from the bottom rows of the session's terminal, where the CLI
+shows its approval panel — a numbered list of options. Working has no
+documented terminal footer, so it is detected from terminal output activity:
+a session whose screen keeps changing is working; one quiet for more than 30
+seconds is idle.
+
+The panel's keys: >
+
+  <CR> / o     Open the session, or fold a group
+  i            Open in a horizontal split
+  s            Open in a vertical split
+  t            Open in a new tab
+  n            Start a session where the cursor is, asking only its name
+  N            Start a session, asking for a branch and then a name
+  g            Swap the top level: state ⇄ place
+  /            Filter every group
+  r            Rename
+  d            End the session (transcript kept, so it stays resumable)
+  D            Purge the session and delete its session data
+  R            Rescan the on-disk sessions
+  I            Show or hide the buried sessions
+  <Space> / za Fold or unfold
+  q            Hide the panel
+  ?            Toggle the inline key reference
+<
+Hiding the panel never stops a session. Status is polled only while the
+panel is visible.
+
+Sharing a column with NERDTree ~
+
+The panel and NERDTree would otherwise form two columns and swallow most of
+the screen. When both are open they share one column, panel on top, sized by
+percentage of the screen: the session panel 25%, the diff tree 40%, and
+NERDTree absorbs the rest. Resize any of them by hand and it stays put.
+<C-a> raises all three at once and dismisses them again once they are all
+showing; it is mapped in normal mode only, so <C-a> still increments numbers
+elsewhere.
+
+Highlight groups ~
+
+The panel uses NERDTree's palette — group nodes coloured like directories,
+session names like files — so the sidebar reads as one thing. Override
+KimiSessionProject, KimiSessionBranch, KimiSessionName, KimiSessionActive and
+friends to restyle just the panel; a link you set is never overwritten.
+
+===============================================================================
+6. WORKSPACES                                                 *kimi-workspaces*
+
+A workspace is a git worktree a session owns: its own checkout of one branch,
+so two sessions can work on two branches at once without fighting over one
+directory.
+
+Starting a session asks two questions: >
+
+  Branch (blank for no workspace): <Tab> completes local and remote branches
+  Session name:
+<
+With both answers blank the session runs in the selected workspace, or where
+you are, and labels itself from its CLI title or first prompt.
+
+The worktree is created beside the main checkout as <repo>-<name>.
+
+<leader>kw (:KimiWorkspaces) lists the main checkout and every workspace, and
+re-roots NERDTree onto the one you pick. It also runs :tcd to that
+workspace's directory, so the current tab's working directory follows the
+switch; other tabs are left alone.
+
+===============================================================================
+7. GIT DIFF TREE                                               *kimi-diff-tree*
+
+<leader>kd opens a tree of every file that differs from the base branch —
+committed and uncommitted together — grouped per worktree. The base is
+auto-detected (origin/HEAD, then main, then master); `b` on a branch row sets
+a base for that branch alone, `B` sets the session-wide default. Per-branch
+bases persist across Vim restarts.
+
+Each row carries a bracketed field with two slots: what the branch did to the
+file relative to the base, and what the working tree has done since. The
+glyphs come from nerdtree-git-plugin, falling back to an embedded copy of its
+defaults. See the README for the full glyph table.
+
+Keys: >
+
+  <CR> / o     Open the file
+  i / s / t    Open in a split / vsplit / tab
+  R            Refresh
+  b / B        Base for this branch / session-wide default
+  d / D        Remove / force-remove the branch's worktree
+  /            Filter; <Esc> clears
+  <Space> / za Fold or unfold
+  q            Hide the tree
+  ?            Toggle help
+<
+===============================================================================
+8. SESSIONS ON DISK                                       *kimi-sessions-on-disk*
+
+The CLI persists every session under $KIMI_CODE_HOME (default ~/.kimi-code):
+one directory per session under sessions/, indexed by session_index.jsonl,
+with metadata (title, last prompt, timestamps) in state.json. The plugin
+never edits those files; it reads the index and state.json to list, label
+and resume sessions, and purge (D) deletes the session directory.
+
+The CLI mints its own session ids and only writes them to disk once a session
+has content, so a session started here starts life under a provisional id
+and is re-keyed onto the CLI's id when one appears. A session started but
+never messaged has nothing on disk: resuming it starts a fresh session that
+keeps the panel row and its name.
+
+The CLI only lists a session once it has content, so a never-messaged one has
+nothing to resume. Names typed in the panel are kept in data/sessions.json
+inside the plugin directory — a plugin reinstall wipes them, so the CLI-side
+title (set with /title, or generated) is the label that survives.
+
+===============================================================================
+9. MODEL SWITCHING                                             *kimi-model*
+
+:KimiModel (or <leader>km) sends a bare /model to the session, opening the
+CLI's own model picker. Opens a new session first if none is running.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

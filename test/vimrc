@@ -7,12 +7,14 @@ set noswapfile
 
 " Vader reports every test as a message, and a suite this size overflows the
 " message area. Without this the run stops at a "-- More --" prompt that
-" nothing can answer when the output is piped, and `make test` fails with the
-" tests themselves all green.
+" nothing can answer when the output is piped, and `make test` fails with
+" the tests themselves all green.
 set nomore
 
-" Load vader and the plugin under test.
-set rtp+=~/.vim/plugged/vader.vim
+" Load vader and the plugin under test. $VADER points at a vader.vim
+" checkout; the default is the vim-plug location.
+let s:vader = empty($VADER) ? expand('~/.vim/plugged/vader.vim') : $VADER
+execute 'set rtp+=' . s:vader
 execute 'set rtp+=' . fnamemodify(expand('<sfile>'), ':p:h:h')
 
-runtime plugin/claude.vim
+runtime plugin/kimi.vim

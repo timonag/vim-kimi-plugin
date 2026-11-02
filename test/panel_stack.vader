@@ -7,20 +7,20 @@
 " scratch split. What is exercised is the plugin's own logic, not NERDTree.
 
 Before:
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  let g:_saved_cmd   = get(g:, 'claude_cmd', 'claude')
-  let g:_saved_store = get(g:, 'claude_session_store', '')
-  let g:claude_cmd = 'sleep 30'
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
   let g:_store_dir = tempname()
   call mkdir(g:_store_dir, 'p')
-  let g:claude_session_store = g:_store_dir . '/sessions.json'
-  let g:_saved_limit = get(g:, 'claude_panel_closed_limit', 10)
-  let g:claude_panel_closed_limit = 0
-  let g:claude_panel_nerdtree_stack = 1
-  let g:claude_panel_height = 15
-  let g:claude_panel_height_pct = 0
-  call claude#store#_reset()
+  call kimi#store#_set_root(g:_store_dir)
+  call kimi#cli#_set_cmd('sleep 30')
+  " Pin the panel's stacked height to a line count: the built-in percentage
+  " would track the test runner's screen size.
+  call kimi#sidebar#_set_heights(0, 15)
+  call kimi#store#_reset()
+  " Room for the geometry the tests assert against.
+  let g:_saved_lines = [&lines, &columns]
+  set lines=40 columns=120
 
   " A stand-in for NERDTree's window.
   function! FakeTree() abort
@@ -38,7 +38,7 @@ Before:
       let l:id = g:_fake_win
       unlet g:_fake_win
       call win_execute(l:id, 'close')
-      call claude#panel#_win_closed(l:id)
+      call kimi#panel#_win_closed(l:id)
     endif
     unlet! g:_fake_win
     unlet! t:NERDTreeBufName
@@ -55,7 +55,7 @@ Before:
 
   " Panel window above the sidebar window, in one column?
   function! Stacked() abort
-    let l:p = bufwinid(claude#panel#bufnr())
+    let l:p = bufwinid(kimi#panel#bufnr())
     let l:n = get(g:, '_fake_win', -1)
     if l:p <= 0 || l:n <= 0 | return 0 | endif
     let l:pp = win_screenpos(win_id2win(l:p))
@@ -64,19 +64,18 @@ Before:
   endfunction
 
 After:
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  execute 'set lines=' . g:_saved_lines[0] . ' columns=' . g:_saved_lines[1]
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#panel#_reset()
-  call claude#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#cli#_reset()
   unlet! g:NERDTree
   unlet! g:_fake_win
   unlet! t:NERDTreeBufName
-  let g:claude_cmd           = g:_saved_cmd
-  let g:claude_panel_closed_limit = g:_saved_limit
-  let g:claude_session_store = g:_saved_store
-  call claude#store#_reset()
+  call kimi#store#_reset()
   call delete(g:_store_dir, 'rf')
   silent! only
 
@@ -84,64 +83,64 @@ After:
 
 Execute (sidebar first, then the panel: they share one column):
   call FakeTree()
-  call claude#panel#open()
+  call kimi#panel#open()
   Assert Stacked(), 'the panel should sit above the sidebar in one column'
 
 Execute (panel first, then the sidebar: stack() repairs the layout):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
   " NERDTree would fire NERDTreeInit here; call the repair pass directly.
-  call claude#panel#stack()
+  call kimi#panel#stack()
   Assert Stacked(), 'the panel should be moved above the sidebar'
 
 Execute (the panel is on top regardless of which opened first):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
-  call claude#panel#stack()
-  let ppos = win_screenpos(win_id2win(bufwinid(claude#panel#bufnr())))
+  call kimi#panel#stack()
+  let ppos = win_screenpos(win_id2win(bufwinid(kimi#panel#bufnr())))
   let npos = win_screenpos(win_id2win(g:_fake_win))
   Assert ppos[0] < npos[0], 'panel row must be above the sidebar row'
 
 Execute (stacking is idempotent):
   call FakeTree()
-  call claude#panel#open()
+  call kimi#panel#open()
   let before = winlayout()
-  call claude#panel#stack()
-  call claude#panel#stack()
+  call kimi#panel#stack()
+  call kimi#panel#stack()
   AssertEqual before, winlayout(), 'repeated stacking must not churn windows'
 
 " ── sizing ───────────────────────────────────────────────────────────────────
 
-Execute (the panel takes the configured height and the sidebar the rest):
-  let g:claude_panel_height = 12
+Execute (the panel takes its height and the sidebar the rest):
+  call kimi#sidebar#_set_heights(0, 12)
   call FakeTree()
-  call claude#panel#open()
-  AssertEqual 12, winheight(win_id2win(bufwinid(claude#panel#bufnr())))
+  call kimi#panel#open()
+  AssertEqual 12, winheight(win_id2win(bufwinid(kimi#panel#bufnr())))
   Assert winheight(win_id2win(g:_fake_win)) > 0,
         \ 'the sidebar keeps the remaining lines'
-  let g:claude_panel_height = 15
+  call kimi#sidebar#_set_heights(0, 15)
 
 Execute (the panel is height-fixed while stacked):
   call FakeTree()
-  call claude#panel#open()
-  AssertEqual 1, getwinvar(win_id2win(bufwinid(claude#panel#bufnr())),
+  call kimi#panel#open()
+  AssertEqual 1, getwinvar(win_id2win(bufwinid(kimi#panel#bufnr())),
         \ '&winfixheight')
 
 Execute (a standalone panel is not height-fixed):
-  call claude#panel#open()
-  AssertEqual 0, getwinvar(win_id2win(bufwinid(claude#panel#bufnr())),
+  call kimi#panel#open()
+  AssertEqual 0, getwinvar(win_id2win(bufwinid(kimi#panel#bufnr())),
         \ '&winfixheight'),
         \ 'without a sidebar the panel must not be pinned to a height'
 
 Execute (closing the sidebar releases the panel height):
   call FakeTree()
-  call claude#panel#open()
-  AssertEqual 1, getwinvar(win_id2win(bufwinid(claude#panel#bufnr())),
+  call kimi#panel#open()
+  AssertEqual 1, getwinvar(win_id2win(bufwinid(kimi#panel#bufnr())),
         \ '&winfixheight')
   call CloseFakeTree()
   " The WinClosed hook defers its work to a timer.
   sleep 100m
-  AssertEqual 0, getwinvar(win_id2win(bufwinid(claude#panel#bufnr())),
+  AssertEqual 0, getwinvar(win_id2win(bufwinid(kimi#panel#bufnr())),
         \ '&winfixheight'),
         \ 'the panel should reclaim the column when the sidebar goes'
 
@@ -149,11 +148,11 @@ Execute (closing the sidebar releases the panel height):
 
 Execute (a session opens beside the sidebars, not inside them):
   call FakeTree()
-  call claude#panel#open()
-  let id = claude#session#new('somewhere else')
-  call win_execute(bufwinid(claude#session#get(id).bufnr), 'hide')
-  call claude#panel#open_session(id, 'split')
-  let twin = bufwinid(claude#session#get(id).bufnr)
+  call kimi#panel#open()
+  let id = kimi#session#new('somewhere else')
+  call win_execute(bufwinid(kimi#session#get(id).bufnr), 'hide')
+  call kimi#panel#open_session(id, 'split')
+  let twin = bufwinid(kimi#session#get(id).bufnr)
   Assert twin != -1, 'the session should be visible'
   Assert win_screenpos(win_id2win(twin))[1]
         \ > win_screenpos(win_id2win(g:_fake_win))[1],
@@ -162,18 +161,9 @@ Execute (a session opens beside the sidebars, not inside them):
 
 Execute (the sidebar is not counted as an ordinary window on quit):
   call FakeTree()
-  call claude#panel#open()
-  AssertEqual bufnr('fake-nerdtree'), claude#panel#nerdtree_bufnr()
-  Assert index(claude#session#bufnrs(), claude#panel#nerdtree_bufnr()) == -1
-
-" ── opting out ───────────────────────────────────────────────────────────────
-
-Execute (stacking disabled leaves two separate columns):
-  let g:claude_panel_nerdtree_stack = 0
-  call FakeTree()
-  call claude#panel#open()
-  let g:claude_panel_nerdtree_stack = 1
-  Assert !Stacked(), 'with stacking off the two must not share a column'
+  call kimi#panel#open()
+  AssertEqual bufnr('fake-nerdtree'), kimi#panel#nerdtree_bufnr()
+  Assert index(kimi#session#bufnrs(), kimi#panel#nerdtree_bufnr()) == -1
 
 " ── no visible flash ─────────────────────────────────────────────────────────
 "
@@ -182,24 +172,24 @@ Execute (stacking disabled leaves two separate columns):
 " otherwise Vim redraws the two columns side by side before they snap together.
 
 Execute (the init hook stacks immediately, without waiting for a timer):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
   Assert !Stacked(), 'precondition: the sidebar opens as its own column'
-  call claude#panel#_nerdtree_init()
+  call kimi#panel#_nerdtree_init()
   " Deliberately no sleep: this must be done by the time the hook returns.
   Assert Stacked(), 'the init hook must stack synchronously'
 
 Execute (stacking leaves the cursor where it was):
-  call claude#panel#open()
+  call kimi#panel#open()
   let treewin = FakeTree()
   call win_gotoid(treewin)
-  call claude#panel#_nerdtree_init()
+  call kimi#panel#_nerdtree_init()
   AssertEqual treewin, win_getid(),
         \ ':NERDTree must keep focus after the panel is moved'
 
 Execute (opening the panel onto an existing sidebar stacks before rendering):
   call FakeTree()
-  call claude#panel#open()
+  call kimi#panel#open()
   Assert Stacked(), 'the panel should already be in place when open() returns'
 
 " ── repairing an independently-opened NERDTree ───────────────────────────────
@@ -212,14 +202,14 @@ Execute (opening the panel onto an existing sidebar stacks before rendering):
 Execute (the window is found while NERDTree is still being built):
   " Mid-creation b:NERDTree does not exist yet, so ExistsForTab() would be
   " false; the lookup must go through t:NERDTreeBufName instead.
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
   unlet! g:NERDTree
-  call claude#panel#_nerdtree_init()
+  call kimi#panel#_nerdtree_init()
   Assert Stacked(), 'the sidebar must be found without g:NERDTree being usable'
 
 Execute (a FileType nerdtree event repairs the layout):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
   Assert !Stacked(), 'precondition: the sidebar opened as its own column'
   " Stand in for the event NERDTree fires from _setCommonBufOptions().
@@ -227,7 +217,7 @@ Execute (a FileType nerdtree event repairs the layout):
   Assert Stacked(), 'FileType nerdtree should trigger the repair'
 
 Execute (the repair keeps the cursor in the tree window mid-creation):
-  call claude#panel#open()
+  call kimi#panel#open()
   let treewin = FakeTree()
   call win_gotoid(treewin)
   doautocmd FileType nerdtree
@@ -235,57 +225,48 @@ Execute (the repair keeps the cursor in the tree window mid-creation):
         \ 'NERDTree must keep focus so it can finish building itself'
 
 Execute (repeated events do not churn the layout):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
   doautocmd FileType nerdtree
   let settled = winlayout()
   doautocmd FileType nerdtree
-  call claude#panel#_nerdtree_init()
+  call kimi#panel#_nerdtree_init()
   AssertEqual settled, winlayout()
 
 " ── manual resizing is not undone ────────────────────────────────────────────
 "
-" g:claude_panel_height is a starting size, not a size that gets re-imposed:
-" claude#panel#stack() runs from the poll timer, so re-applying the height on
+" The starting height is a starting height, not one that gets re-imposed:
+" kimi#panel#stack() runs from the poll timer, so re-applying the height on
 " every call would fight the user every couple of seconds.
 
 Execute (a hand-resized panel keeps its height across a stack() call):
   call FakeTree()
-  call claude#panel#open()
-  AssertEqual 15, winheight(win_id2win(bufwinid(claude#panel#bufnr())))
+  call kimi#panel#open()
+  AssertEqual 15, winheight(win_id2win(bufwinid(kimi#panel#bufnr())))
   " The user drags the divider.
-  call win_execute(bufwinid(claude#panel#bufnr()), 'resize 25')
-  AssertEqual 25, winheight(win_id2win(bufwinid(claude#panel#bufnr())))
+  call win_execute(bufwinid(kimi#panel#bufnr()), 'resize 25')
+  AssertEqual 25, winheight(win_id2win(bufwinid(kimi#panel#bufnr())))
   " Two poll ticks later it must still be 25.
-  call claude#panel#stack()
-  call claude#panel#stack()
-  AssertEqual 25, winheight(win_id2win(bufwinid(claude#panel#bufnr()))),
-        \ 'the poll timer must not re-impose g:claude_panel_height'
-
-Execute (a hand-resized panel survives a change to the config default):
-  call FakeTree()
-  call claude#panel#open()
-  call win_execute(bufwinid(claude#panel#bufnr()), 'resize 22')
-  let g:claude_panel_height = 8
-  call claude#panel#stack()
-  AssertEqual 22, winheight(win_id2win(bufwinid(claude#panel#bufnr())))
-  let g:claude_panel_height = 15
+  call kimi#panel#stack()
+  call kimi#panel#stack()
+  AssertEqual 25, winheight(win_id2win(bufwinid(kimi#panel#bufnr()))),
+        \ 'the poll timer must not re-impose the starting height'
 
 Execute (the height is still applied when the two first come together):
-  call claude#panel#open()
+  call kimi#panel#open()
   call FakeTree()
-  call claude#panel#_nerdtree_init()
-  AssertEqual 15, winheight(win_id2win(bufwinid(claude#panel#bufnr()))),
+  call kimi#panel#_nerdtree_init()
+  AssertEqual 15, winheight(win_id2win(bufwinid(kimi#panel#bufnr()))),
         \ 'the starting height applies on the transition into stacking'
 
 Execute (re-stacking after a manual unstack applies the height again):
   call FakeTree()
-  call claude#panel#open()
-  call win_execute(bufwinid(claude#panel#bufnr()), 'resize 25')
+  call kimi#panel#open()
+  call win_execute(bufwinid(kimi#panel#bufnr()), 'resize 25')
   " Pull the panel back out into its own column, as a manual rearrangement would.
-  call win_splitmove(bufwinid(claude#panel#bufnr()), g:_fake_win,
+  call win_splitmove(bufwinid(kimi#panel#bufnr()), g:_fake_win,
         \ {'vertical': v:true, 'rightbelow': v:false})
   Assert !Stacked(), 'precondition: the panel is out of the column'
-  call claude#panel#stack()
+  call kimi#panel#stack()
   Assert Stacked(), 'the backstop should put it back'
-  AssertEqual 15, winheight(win_id2win(bufwinid(claude#panel#bufnr())))
+  AssertEqual 15, winheight(win_id2win(bufwinid(kimi#panel#bufnr())))

@@ -2,66 +2,64 @@
 " are doing and where they live, and for the fold state each view keeps.
 
 Before:
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  call claude#store#_reset()
-  let g:_saved_store = get(g:, 'claude_session_store', '')
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#store#_reset()
   let g:_saved_cwd   = getcwd()
   let g:_dir = tempname()
   call mkdir(g:_dir, 'p')
-  let g:claude_session_store = g:_dir . '/sessions.json'
+  call kimi#store#_set_root(g:_dir)
   execute 'cd ' . fnameescape(g:_dir)
 
 After:
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  call claude#panel#_reset()
-  call claude#session#_reset()
-  call claude#store#_reset()
-  let g:claude_session_store = g:_saved_store
+  call kimi#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#store#_reset()
   call delete(g:_dir, 'rf')
   only
 
 Execute (helper):
   function! Panel() abort
-    call claude#session#_inject({'name': 'panel rework', 'status': 'active',
+    call kimi#session#_inject({'name': 'panel rework', 'status': 'active',
           \ 'project': '/w/alpha', 'worktree': '/w/alpha', 'branch': 'main'})
-    call claude#panel#open()
-    call win_gotoid(bufwinid(claude#panel#bufnr()))
+    call kimi#panel#open()
+    call win_gotoid(bufwinid(kimi#panel#bufnr()))
   endfunction
 
 " ── the swap ─────────────────────────────────────────────────────────────────
 
 Execute (g swaps the top level, and back again):
   call Panel()
-  Assert join(claude#panel#_lines(), "\n") =~# '▾ Working',
+  Assert join(kimi#panel#_lines(), "\n") =~# '▾ Working',
         \ 'the panel opens on the state view'
 
   normal g
-  AssertEqual 'place', claude#panel#_grouping()
-  let text = join(claude#panel#_lines(), "\n")
+  AssertEqual 'place', kimi#panel#_grouping()
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# '▾ alpha',      'now it is the place view: ' . text
   Assert text =~# '  ▾ main',   'and its branch'
   Assert text !~# 'Working',      'and no state groups'
 
   normal g
-  AssertEqual 'state', claude#panel#_grouping()
-  Assert join(claude#panel#_lines(), "\n") =~# '▾ Working'
+  AssertEqual 'state', kimi#panel#_grouping()
+  Assert join(kimi#panel#_lines(), "\n") =~# '▾ Working'
 
 Execute (the same session is drawn in both, at different depths):
   call Panel()
-  let state = filter(claude#panel#_lines(), {_, l -> l =~# 'panel rework'})[0]
+  let state = filter(kimi#panel#_lines(), {_, l -> l =~# 'panel rework'})[0]
   normal g
-  let place = filter(claude#panel#_lines(), {_, l -> l =~# 'panel rework'})[0]
+  let place = filter(kimi#panel#_lines(), {_, l -> l =~# 'panel rework'})[0]
   Assert state =~# '^  ●',     'two indents in the state view: ' . state
   Assert place =~# '^    ●', 'four in the place view: ' . place
 
 Execute (the header follows you across):
-  call claude#session#_inject({'name': 'asking', 'status': 'waiting'})
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
-  Assert claude#panel#_lines()[0] =~# '1 waiting$'
+  call kimi#session#_inject({'name': 'asking', 'status': 'waiting'})
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
+  Assert kimi#panel#_lines()[0] =~# '1 waiting$'
   normal g
-  Assert claude#panel#_lines()[0] =~# '1 waiting$',
+  Assert kimi#panel#_lines()[0] =~# '1 waiting$',
         \ 'who needs you is the question in either view'
 
 " ── folds ────────────────────────────────────────────────────────────────────
@@ -72,29 +70,29 @@ Execute (each view keeps its own folds across a swap):
   call cursor(1, 1)
   call search('Working', 'W')
   normal za
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework'
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework'
 
   " The place view is unaffected: its keys are its own.
   normal g
-  Assert join(claude#panel#_lines(), "\n") =~# 'panel rework',
+  Assert join(kimi#panel#_lines(), "\n") =~# 'panel rework',
         \ 'a state fold must not fold a project'
 
   " Fold the project too.
   call cursor(1, 1)
   call search('alpha', 'W')
   normal za
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework'
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework'
 
   " Both folds are still there on the way back.
   normal g
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework',
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework',
         \ 'the state fold survived the round trip'
   call cursor(1, 1)
   call search('Working', 'W')
   normal za
-  Assert join(claude#panel#_lines(), "\n") =~# 'panel rework'
+  Assert join(kimi#panel#_lines(), "\n") =~# 'panel rework'
   normal g
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework',
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework',
         \ 'and so did the project fold'
 
 " ── what a reset restores ────────────────────────────────────────────────────
@@ -105,25 +103,25 @@ Execute (a reset puts the view, the folds and the tail back):
   call cursor(1, 1)
   call search('alpha', 'W')
   normal za
-  AssertEqual 'place', claude#panel#_grouping()
+  AssertEqual 'place', kimi#panel#_grouping()
 
-  call claude#panel#_reset()
-  call claude#panel#open()
-  AssertEqual 'state', claude#panel#_grouping(), 'the default view is back'
-  call claude#session#_inject({'name': 'finished', 'status': 'closed'})
-  call claude#panel#refresh()
-  Assert join(claude#panel#_lines(), "\n") =~# '▸ Done',
+  call kimi#panel#_reset()
+  call kimi#panel#open()
+  AssertEqual 'state', kimi#panel#_grouping(), 'the default view is back'
+  call kimi#session#_inject({'name': 'finished', 'status': 'closed'})
+  call kimi#panel#refresh()
+  Assert join(kimi#panel#_lines(), "\n") =~# '▸ Done',
         \ 'and Done is shut again'
 
 Execute (the help block names the key):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   normal ?
-  let text = join(claude#panel#_lines(), "\n")
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'g by place', 'the help should offer the swap: ' . text
   Assert text =~# '/ filter',   'and the filter'
   normal g
   normal ?
   normal ?
-  Assert join(claude#panel#_lines(), "\n") =~# 'g by state',
+  Assert join(kimi#panel#_lines(), "\n") =~# 'g by state',
         \ 'and say where it would take you from here'

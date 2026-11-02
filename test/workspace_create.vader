@@ -1,12 +1,10 @@
-" Tests for claude#workspace#create() — the git worktree behind a session.
-" Uses a real fixture repository; no terminal, no Claude process.
+" Tests for kimi#workspace#create() — the git worktree behind a session.
+" Uses a real fixture repository; no terminal, no Kimi process.
 
 Before:
-  call claude#workspace#_reset()
-  call claude#store#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
   let g:_saved_cwd   = getcwd()
-  let g:_saved_store = get(g:, 'claude_workspace_store', '')
-  let g:_saved_dir   = get(g:, 'claude_workspace_dir', '')
 
   " The repository is a subdirectory of the temp root, so worktrees placed
   " beside it are cleaned up with everything else.
@@ -24,27 +22,24 @@ Before:
   call system(g:_git . 'commit -qm first')
   call system(g:_git . 'branch feature')
 
-  let g:claude_workspace_store = g:_root . '/workspaces.json'
-  let g:claude_workspace_dir   = ''
+  call kimi#store#_set_root(g:_root)
   execute 'cd ' . fnameescape(g:_repo)
 
 After:
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  let g:claude_workspace_store = g:_saved_store
-  let g:claude_workspace_dir   = g:_saved_dir
-  call claude#workspace#_reset()
-  call claude#store#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
   call delete(g:_root, 'rf')
 
 " ── the repository ───────────────────────────────────────────────────────────
 
 Execute (the project root is the main checkout):
-  AssertEqual g:_repo, claude#workspace#project_root()
+  AssertEqual g:_repo, kimi#workspace#project_root()
 
 " ── creating ─────────────────────────────────────────────────────────────────
 
 Execute (an existing branch is checked out into a worktree beside the repo):
-  let ws = claude#workspace#create('feature', '')
+  let ws = kimi#workspace#create('feature', '')
   Assert !empty(ws), 'a workspace should have been created'
   AssertEqual 'feature',  ws.name
   AssertEqual 'feature',  ws.branch
@@ -55,7 +50,7 @@ Execute (an existing branch is checked out into a worktree beside the repo):
         \ 'the worktree should hold the branch content'
 
 Execute (an unknown branch is created off HEAD):
-  let ws = claude#workspace#create('brand-new', '')
+  let ws = kimi#workspace#create('brand-new', '')
   Assert !empty(ws), 'a workspace should have been created'
   AssertEqual 'brand-new', ws.branch
   let head = systemlist('git -C ' . shellescape(ws.path)
@@ -71,19 +66,19 @@ Execute (an unknown branch is created off HEAD):
 " checked out means "work there", not "fail".
 
 Execute (the branch of an existing workspace hands back that workspace):
-  let first = claude#workspace#create('feature', '')
-  let again = claude#workspace#create('feature', 'a different name')
+  let first = kimi#workspace#create('feature', '')
+  let again = kimi#workspace#create('feature', 'a different name')
   AssertEqual first.id,   again.id, 'the same workspace should come back'
   AssertEqual first.path, again.path
-  AssertEqual 1, len(claude#workspace#list()),
+  AssertEqual 1, len(kimi#workspace#list()),
         \ 'no second record should have been written'
 
 Execute (the branch of the main checkout resolves to it, as a non-workspace):
-  let ws = claude#workspace#create('main', '')
+  let ws = kimi#workspace#create('main', '')
   AssertEqual '',      ws.id, 'an empty id means it is not a workspace'
   AssertEqual g:_repo, ws.path
   AssertEqual 'main',  ws.branch
-  AssertEqual [], claude#workspace#list(), 'and nothing was persisted'
+  AssertEqual [], kimi#workspace#list(), 'and nothing was persisted'
   Assert !isdirectory(g:_root . '/repo-main'),
         \ 'no worktree should have been created'
 
@@ -91,38 +86,37 @@ Execute (a worktree made outside the plugin is adopted):
   let outside = g:_root . '/made-by-hand'
   call system(g:_git . 'worktree add -q ' . shellescape(outside) . ' feature')
   Assert isdirectory(outside), 'precondition: the worktree exists'
-  AssertEqual [], claude#workspace#list(), 'and is unknown to the plugin'
+  AssertEqual [], kimi#workspace#list(), 'and is unknown to the plugin'
 
-  let ws = claude#workspace#create('feature', '')
+  let ws = kimi#workspace#create('feature', '')
   AssertEqual 'feature', ws.name, 'adopted under the branch name'
   AssertEqual outside,   ws.path, 'pointing at the worktree that exists'
-  AssertEqual ['feature'], map(copy(claude#workspace#list()), {_, w -> w.name}),
+  AssertEqual ['feature'], map(copy(kimi#workspace#list()), {_, w -> w.name}),
         \ 'and it is listed from now on'
 
 Execute (a blank branch creates nothing):
-  AssertEqual {}, claude#workspace#create('', 'anything')
-  AssertEqual [], claude#workspace#list()
+  AssertEqual {}, kimi#workspace#create('', 'anything')
+  AssertEqual [], kimi#workspace#list()
 
 Execute (an explicit name is used for the directory, not the branch):
-  let ws = claude#workspace#create('feature', 'review')
+  let ws = kimi#workspace#create('feature', 'review')
   AssertEqual 'review',  ws.name
   AssertEqual 'feature', ws.branch
   AssertEqual g:_root . '/repo-review', ws.path
 
-Execute (g:claude_workspace_dir decides where worktrees live):
-  let g:claude_workspace_dir = g:_root . '/trees'
-  let ws = claude#workspace#create('feature', '')
-  AssertEqual g:_root . '/trees/feature', ws.path
-  Assert isdirectory(ws.path), 'the parent directory should be created'
+Execute (a worktree always lands beside the repository):
+  let ws = kimi#workspace#create('feature', '')
+  AssertEqual g:_root . '/repo-feature', ws.path
+  Assert isdirectory(ws.path)
 
 Execute (a directory already in the way is refused):
   call mkdir(g:_root . '/repo-feature', 'p')
-  AssertEqual {}, claude#workspace#create('feature', '')
-  AssertEqual [], claude#workspace#list()
+  AssertEqual {}, kimi#workspace#create('feature', '')
+  AssertEqual [], kimi#workspace#list()
 
 Execute (a branch name with slashes becomes one directory, not a tree):
   call system(g:_git . 'branch topic/deep')
-  let ws = claude#workspace#create('topic/deep', '')
+  let ws = kimi#workspace#create('topic/deep', '')
   AssertEqual 'topic-deep', ws.name
   AssertEqual 'topic/deep', ws.branch
   AssertEqual g:_root . '/repo-topic-deep', ws.path
@@ -139,7 +133,7 @@ Execute (a branch that only exists on a remote gets a local one that tracks it):
   call system(g:_git . 'fetch -q origin')
   call system(g:_git . 'branch -D feature')
 
-  let ws = claude#workspace#create('feature', '')
+  let ws = kimi#workspace#create('feature', '')
   AssertEqual 'feature', ws.branch
   let upstream = systemlist('git -C ' . shellescape(ws.path)
         \ . ' rev-parse --abbrev-ref --symbolic-full-name @{u}')
@@ -153,7 +147,7 @@ Execute (the remote-tracking name may be typed in full):
   call system(g:_git . 'fetch -q origin')
   call system(g:_git . 'branch -D feature')
 
-  let ws = claude#workspace#create('origin/feature', '')
+  let ws = kimi#workspace#create('origin/feature', '')
   AssertEqual 'feature', ws.branch, 'the local branch drops the remote'
   AssertEqual 'feature', ws.name,
         \ 'the workspace is named after the branch it holds' 
@@ -165,7 +159,7 @@ Execute (origin/x with a local x already there checks out the local branch):
   call system(g:_git . 'remote add origin ' . shellescape(remote))
   call system(g:_git . 'fetch -q origin')
 
-  let ws = claude#workspace#create('origin/feature', '')
+  let ws = kimi#workspace#create('origin/feature', '')
   AssertEqual 'feature', ws.branch,
         \ 'the existing local branch is used, not a second one'
   let head = systemlist('git -C ' . shellescape(ws.path)
@@ -175,81 +169,81 @@ Execute (origin/x with a local x already there checks out the local branch):
 " ── listing ──────────────────────────────────────────────────────────────────
 
 Execute (created workspaces are listed for this repository):
-  call claude#workspace#create('feature', '')
-  call claude#workspace#create('brand-new', '')
-  let names = map(copy(claude#workspace#list()), {_, w -> w.name})
+  call kimi#workspace#create('feature', '')
+  call kimi#workspace#create('brand-new', '')
+  let names = map(copy(kimi#workspace#list()), {_, w -> w.name})
   call sort(names)
   AssertEqual ['brand-new', 'feature'], names
 
 Execute (a worktree removed behind our back is pruned from the list):
-  let ws = claude#workspace#create('feature', '')
+  let ws = kimi#workspace#create('feature', '')
   call system('git -C ' . shellescape(g:_repo) . ' worktree remove '
         \ . shellescape(ws.path))
   Assert !isdirectory(ws.path), 'the worktree should be gone'
-  AssertEqual [], claude#workspace#list()
-  AssertEqual {}, claude#workspace#get('feature')
+  AssertEqual [], kimi#workspace#list()
+  AssertEqual {}, kimi#workspace#get('feature')
 
 " ── removing ─────────────────────────────────────────────────────────────────
 
 Execute (a workspace is removed, its worktree and record both gone):
-  let ws = claude#workspace#create('feature', '')
-  Assert claude#workspace#remove(ws.id), 'removal should report success'
+  let ws = kimi#workspace#create('feature', '')
+  Assert kimi#workspace#remove(ws.id), 'removal should report success'
   Assert !isdirectory(ws.path), 'the worktree directory should be gone'
-  AssertEqual [], claude#workspace#list()
-  AssertEqual {}, claude#workspace#get('feature')
+  AssertEqual [], kimi#workspace#list()
+  AssertEqual {}, kimi#workspace#get('feature')
 
 Execute (removing an unknown workspace does nothing and reports failure):
-  Assert !claude#workspace#remove('nope')
+  Assert !kimi#workspace#remove('nope')
 
 Execute (a dirty worktree resists a plain removal but yields to force):
-  let ws = claude#workspace#create('feature', '')
+  let ws = kimi#workspace#create('feature', '')
   call writefile(['dirty'], ws.path . '/file.txt')
-  Assert !claude#workspace#remove(ws.id),
+  Assert !kimi#workspace#remove(ws.id),
         \ 'git should refuse to remove a dirty worktree'
   Assert isdirectory(ws.path), 'the worktree should still be there'
-  AssertEqual 1, len(claude#workspace#list()), 'and the record kept'
+  AssertEqual 1, len(kimi#workspace#list()), 'and the record kept'
 
-  Assert claude#workspace#force_remove(ws.id), 'force should succeed'
+  Assert kimi#workspace#force_remove(ws.id), 'force should succeed'
   Assert !isdirectory(ws.path)
-  AssertEqual [], claude#workspace#list()
+  AssertEqual [], kimi#workspace#list()
 
 Execute (removing the current workspace clears the selection):
-  let ws = claude#workspace#create('feature', '')
-  call claude#workspace#set_current(ws.id)
-  call claude#workspace#remove(ws.id)
-  AssertEqual {}, claude#workspace#current()
+  let ws = kimi#workspace#create('feature', '')
+  call kimi#workspace#set_current(ws.id)
+  call kimi#workspace#remove(ws.id)
+  AssertEqual {}, kimi#workspace#current()
 
 " ── the selected workspace ───────────────────────────────────────────────────
 
 Execute (nothing is selected until it is chosen):
-  AssertEqual {},        claude#workspace#current()
-  AssertEqual getcwd(),  claude#workspace#cwd()
+  AssertEqual {},        kimi#workspace#current()
+  AssertEqual getcwd(),  kimi#workspace#cwd()
 
 Execute (selecting a workspace makes it the directory new sessions use):
-  let ws = claude#workspace#create('feature', '')
-  Assert claude#workspace#set_current('feature'), 'selection should take'
-  AssertEqual 'feature', claude#workspace#current().name
-  AssertEqual ws.path,   claude#workspace#cwd()
+  let ws = kimi#workspace#create('feature', '')
+  Assert kimi#workspace#set_current('feature'), 'selection should take'
+  AssertEqual 'feature', kimi#workspace#current().name
+  AssertEqual ws.path,   kimi#workspace#cwd()
 
 Execute (selecting an unknown workspace changes nothing):
-  Assert !claude#workspace#set_current('nope')
-  AssertEqual {}, claude#workspace#current()
+  Assert !kimi#workspace#set_current('nope')
+  AssertEqual {}, kimi#workspace#current()
 
 Execute (selecting one works without NERDTree installed):
-  call claude#workspace#create('feature', '')
-  call claude#workspace#select('feature')
-  AssertEqual 'feature', claude#workspace#current().name,
+  call kimi#workspace#create('feature', '')
+  call kimi#workspace#select('feature')
+  AssertEqual 'feature', kimi#workspace#current().name,
         \ 'the selection stands; only the re-rooting needs NERDTree'
 
 Execute (selecting an unknown workspace leaves the selection alone):
-  call claude#workspace#create('feature', '')
-  call claude#workspace#select('feature')
-  call claude#workspace#select('nope')
-  AssertEqual 'feature', claude#workspace#current().name
+  call kimi#workspace#create('feature', '')
+  call kimi#workspace#select('feature')
+  call kimi#workspace#select('nope')
+  AssertEqual 'feature', kimi#workspace#current().name
 
 Execute (the empty id selects the main checkout again):
-  call claude#workspace#create('feature', '')
-  call claude#workspace#set_current('feature')
-  Assert claude#workspace#set_current('')
-  AssertEqual {},       claude#workspace#current()
-  AssertEqual getcwd(), claude#workspace#cwd()
+  call kimi#workspace#create('feature', '')
+  call kimi#workspace#set_current('feature')
+  Assert kimi#workspace#set_current('')
+  AssertEqual {},       kimi#workspace#current()
+  AssertEqual getcwd(), kimi#workspace#cwd()

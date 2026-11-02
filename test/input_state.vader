@@ -1,111 +1,108 @@
 " Tests for the input window state management:
-"   claude#input#open()   — opens the split, sets t:claude_input_bufnr
-"   claude#input#cancel() — discards draft, resets state
-"   claude#input#submit() — clears state; does NOT call _send_input when
+"   kimi#input#open()   — opens the split, sets t:kimi_input_bufnr
+"   kimi#input#cancel() — discards draft, resets state
+"   kimi#input#submit() — clears state; does NOT call _send_input when
 "                           the buffer is empty
 
 Before:
   " The input window's own state stays tab-local: it is a per-tab composing
   " surface, not a session.
-  let t:claude_input_bufnr = -1
-  let t:claude_input_saved = []
+  let t:kimi_input_bufnr = -1
+  let t:kimi_input_saved = []
   " submit() delivers to a session, so stand in for the CLI and skip the name
-  " prompt — these tests must never launch Claude or block on input.
-  call claude#session#_reset()
-  let g:_saved_cmd    = get(g:, 'claude_cmd', 'claude')
-  let g:_saved_prompt = get(g:, 'claude_session_prompt_name', 1)
-  let g:claude_cmd = 'sleep 30'
-  let g:claude_session_prompt_name = 0
+  " prompt — these tests must never launch Kimi or block on input.
+  call kimi#session#_reset()
+  call kimi#cli#_reset()
   " submit() spawns a session, and a session persists itself. Without this the
   " tests write into whatever store the user actually uses.
-  let g:_saved_store = get(g:, 'claude_session_store', '')
   let g:_store_dir = tempname()
   call mkdir(g:_store_dir, 'p')
-  let g:claude_session_store = g:_store_dir . '/sessions.json'
-  call claude#store#_reset()
+  call kimi#store#_set_root(g:_store_dir)
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
 
 After:
   stopinsert
   " If a stray input buffer survived, wipe it.
-  let stray = get(t:, 'claude_input_bufnr', -1)
+  let stray = get(t:, 'kimi_input_bufnr', -1)
   if stray != -1 && bufexists(stray)
     execute 'bwipeout! ' . stray
   endif
-  let t:claude_input_bufnr = -1
-  let t:claude_input_saved = []
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  let t:kimi_input_bufnr = -1
+  let t:kimi_input_saved = []
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#session#_reset()
-  let g:claude_cmd                 = g:_saved_cmd
-  let g:claude_session_prompt_name = g:_saved_prompt
-  let g:claude_session_store       = g:_saved_store
-  call claude#store#_reset()
+  call kimi#session#_reset()
+  call kimi#cli#_reset()
+  call kimi#store#_reset()
   call delete(g:_store_dir, 'rf')
   only
 
 " ── open ─────────────────────────────────────────────────────────────────────
 
-Execute (open sets t:claude_input_bufnr to a valid buffer number):
-  call claude#input#open()
-  let bufnr = get(t:, 'claude_input_bufnr', -1)
-  Assert bufnr != -1, 'claude_input_bufnr should be set after open()'
+Execute (open sets t:kimi_input_bufnr to a valid buffer number):
+  call kimi#input#open()
+  let bufnr = get(t:, 'kimi_input_bufnr', -1)
+  Assert bufnr != -1, 'kimi_input_bufnr should be set after open()'
   Assert bufexists(bufnr), 'buffer should exist after open()'
 
 Execute (calling open a second time when panel is visible discards and closes it):
-  call claude#input#open()
-  let first = get(t:, 'claude_input_bufnr', -1)
+  call kimi#input#open()
+  let first = get(t:, 'kimi_input_bufnr', -1)
   Assert first != -1, 'first open should create buffer'
   " Second open on an existing panel calls cancel(), resetting state.
-  call claude#input#open()
-  AssertEqual -1, get(t:, 'claude_input_bufnr', -1)
+  call kimi#input#open()
+  AssertEqual -1, get(t:, 'kimi_input_bufnr', -1)
 
 " ── cancel ───────────────────────────────────────────────────────────────────
 
 Execute (cancel resets bufnr to -1):
-  call claude#input#open()
-  call claude#input#cancel()
-  AssertEqual -1, get(t:, 'claude_input_bufnr', -1)
+  call kimi#input#open()
+  call kimi#input#cancel()
+  AssertEqual -1, get(t:, 'kimi_input_bufnr', -1)
 
 Execute (cancel clears any saved draft):
-  let t:claude_input_saved = ['some previous draft']
-  call claude#input#open()
-  call claude#input#cancel()
-  AssertEqual [], get(t:, 'claude_input_saved', ['not cleared'])
+  let t:kimi_input_saved = ['some previous draft']
+  call kimi#input#open()
+  call kimi#input#cancel()
+  AssertEqual [], get(t:, 'kimi_input_saved', ['not cleared'])
 
 Execute (cancel wipes the input buffer):
-  call claude#input#open()
-  let bufnr = get(t:, 'claude_input_bufnr', -1)
-  call claude#input#cancel()
+  call kimi#input#open()
+  let bufnr = get(t:, 'kimi_input_bufnr', -1)
+  call kimi#input#cancel()
   Assert !bufexists(bufnr), 'buffer should be wiped after cancel()'
 
 " ── submit ───────────────────────────────────────────────────────────────────
 
 Execute (submit with empty buffer resets state without calling _send_input):
-  call claude#input#open()
+  call kimi#input#open()
   " The buffer contains one blank line by default; submit should skip send,
   " so no session is created.
-  call claude#input#submit()
-  AssertEqual -1, get(t:, 'claude_input_bufnr', -1)
-  AssertEqual [], get(t:, 'claude_input_saved', ['not cleared'])
-  AssertEqual 0, len(claude#session#live()),
+  call kimi#input#submit()
+  AssertEqual -1, get(t:, 'kimi_input_bufnr', -1)
+  AssertEqual [], get(t:, 'kimi_input_saved', ['not cleared'])
+  AssertEqual 0, len(kimi#session#live()),
         \ 'an empty submit must not start a session'
 
 Execute (submit clears the saved draft and delivers to a session):
-  let t:claude_input_saved = ['leftover draft']
-  call claude#input#open()
-  call claude#input#submit()
-  AssertEqual [], get(t:, 'claude_input_saved', ['not cleared'])
-  " With nothing running, delivery starts a session to send into.
-  AssertEqual 1, len(claude#session#live())
+  " A session already running, so delivery resolves to it without asking.
+  let id = kimi#session#new('deliver here')
+  wincmd p
+  let t:kimi_input_saved = ['leftover draft']
+  call kimi#input#open()
+  call kimi#input#submit()
+  AssertEqual [], get(t:, 'kimi_input_saved', ['not cleared'])
+  AssertEqual 1, len(kimi#session#live())
 
 " ── draft persistence ─────────────────────────────────────────────────────────
 
 Execute (open restores a previously saved draft into the buffer):
-  let t:claude_input_saved = ['line one', 'line two']
-  call claude#input#open()
-  let bufnr = get(t:, 'claude_input_bufnr', -1)
+  let t:kimi_input_saved = ['line one', 'line two']
+  call kimi#input#open()
+  let bufnr = get(t:, 'kimi_input_bufnr', -1)
   Assert bufnr != -1, 'buffer should exist'
   let lines = getbufline(bufnr, 1, '$')
   AssertEqual ['line one', 'line two'], lines
@@ -113,8 +110,8 @@ Execute (open restores a previously saved draft into the buffer):
 " ── keymaps ──────────────────────────────────────────────────────────────────
 
 Execute (CTRL-C saves the draft and hides the window):
-  call claude#input#open()
-  let bufnr = get(t:, 'claude_input_bufnr', -1)
+  call kimi#input#open()
+  let bufnr = get(t:, 'kimi_input_bufnr', -1)
   stopinsert
   call setbufline(bufnr, 1, ['half a thought', ''])
 
@@ -126,28 +123,28 @@ Execute (CTRL-C saves the draft and hides the window):
         \ 'expected it to save the draft and close'
 
   execute "normal \<C-c>"
-  AssertEqual -1, get(t:, 'claude_input_bufnr', -1), 'the state should reset'
+  AssertEqual -1, get(t:, 'kimi_input_bufnr', -1), 'the state should reset'
   Assert !bufexists(bufnr), 'the buffer should be wiped'
-  AssertEqual ['half a thought'], get(t:, 'claude_input_saved', []),
+  AssertEqual ['half a thought'], get(t:, 'kimi_input_saved', []),
         \ 'the draft should have been kept, trailing blank line trimmed'
 
 Execute (<Esc> is left alone in normal mode):
-  call claude#input#open()
+  call kimi#input#open()
   stopinsert
-  call win_gotoid(bufwinid(get(t:, 'claude_input_bufnr', -1)))
+  call win_gotoid(bufwinid(get(t:, 'kimi_input_bufnr', -1)))
   AssertEqual '', maparg('<Esc>', 'n'),
         \ '<Esc> must just leave insert mode, not close the window'
 
 Execute (<Esc> still dismisses the completion popup in insert mode):
-  call claude#input#open()
+  call kimi#input#open()
   stopinsert
-  call win_gotoid(bufwinid(get(t:, 'claude_input_bufnr', -1)))
+  call win_gotoid(bufwinid(get(t:, 'kimi_input_bufnr', -1)))
   Assert maparg('<Esc>', 'i') =~# 'pumvisible',
         \ 'the insert-mode popup escape hatch must survive'
 
 Execute (CTRL-C from insert mode leaves 'completeopt' as it found it):
   let before = &completeopt
-  call claude#input#open()
+  call kimi#input#open()
   call feedkeys("ihello\<C-c>", 'x')
   AssertEqual before, &completeopt,
         \ "InsertLeave must fire, or 'completeopt' stays where InsertEnter put it"

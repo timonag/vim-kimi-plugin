@@ -26,12 +26,15 @@ let s:bases_ok   = 0
 let s:filter     = ''
 let s:show_help  = 0
 
-call claude#sidebar#register({
+" Two built-in behaviours tests bend through their _set_* seams.
+let s:collapse_dirs  = 1
+let s:show_untracked = 1
+
+call kimi#sidebar#register({
       \ 'name':     'difftree',
       \ 'priority': 20,
-      \ 'Winid':    function('claude#difftree#winid'),
-      \ 'Height':   {-> claude#sidebar#height_pct('claude_difftree_height_pct',
-      \                 'claude_difftree_height', 15)},
+      \ 'Winid':    function('kimi#difftree#winid'),
+      \ 'Height':   {-> kimi#sidebar#height_pct(40, 15)},
       \ })
 
 " ── git ──────────────────────────────────────────────────────────────────────
@@ -52,20 +55,16 @@ function! s:repo_root() abort
   return empty(l:out) ? '' : l:out[0]
 endfunction
 
-function! claude#difftree#is_repo() abort
+function! kimi#difftree#is_repo() abort
   return !empty(s:repo_root())
 endfunction
 
 " The default base: what a branch uses when it has no override of its own.
-"
-"   B (session-wide)  ->  g:claude_difftree_base  ->  auto-detection
-function! claude#difftree#base() abort
+" The session-wide B key overrides it for the session; otherwise the base is
+" auto-detected (origin/HEAD, then main, then master).
+function! kimi#difftree#base() abort
   if !empty(s:base_over)
     return s:base_over
-  endif
-  let l:configured = get(g:, 'claude_difftree_base', '')
-  if !empty(l:configured)
-    return l:configured
   endif
   if empty(s:base_cache)
     let s:base_cache = s:detect_base()
@@ -93,15 +92,15 @@ function! s:detect_base() abort
 endfunction
 
 " The base for one branch: its own override, or the default above.
-function! claude#difftree#base_for(branch) abort
-  return get(s:branch_bases(), a:branch, claude#difftree#base())
+function! kimi#difftree#base_for(branch) abort
+  return get(s:branch_bases(), a:branch, kimi#difftree#base())
 endfunction
 
 " True when {branch} diffs against something other than the default, which is
 " what the panel shows in brackets.
-function! claude#difftree#has_override(branch) abort
+function! kimi#difftree#has_override(branch) abort
   let l:own = get(s:branch_bases(), a:branch, '')
-  return !empty(l:own) && l:own !=# claude#difftree#base()
+  return !empty(l:own) && l:own !=# kimi#difftree#base()
 endfunction
 
 " ── the per-branch store ─────────────────────────────────────────────────────
@@ -111,7 +110,7 @@ endfunction
 " repositories keeps separate bases. Read once per refresh, never on a redraw.
 
 function! s:load_bases() abort
-  let l:data = claude#store#load_at(claude#store#difftree_path(),
+  let l:data = kimi#store#load_at(kimi#store#difftree_path(),
         \ 'bases', 'diff base store')
   return get(l:data.bases, s:repo_root(), {})
 endfunction
@@ -125,9 +124,9 @@ function! s:branch_bases() abort
 endfunction
 
 " Set {branch}'s base, or clear it when {base} is empty.
-function! claude#difftree#set_branch_base(branch, base) abort
-  let l:path = claude#store#difftree_path()
-  let l:data = claude#store#load_at(l:path, 'bases', 'diff base store')
+function! kimi#difftree#set_branch_base(branch, base) abort
+  let l:path = kimi#store#difftree_path()
+  let l:data = kimi#store#load_at(l:path, 'bases', 'diff base store')
   let l:root = s:repo_root()
   if !has_key(l:data.bases, l:root)
     let l:data.bases[l:root] = {}
@@ -139,32 +138,32 @@ function! claude#difftree#set_branch_base(branch, base) abort
   else
     let l:data.bases[l:root][a:branch] = a:base
   endif
-  call claude#store#save_at(l:path, l:data, 'diff base store')
+  call kimi#store#save_at(l:path, l:data, 'diff base store')
   let s:bases_ok = 0
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
 endfunction
 
 " Set the session-wide default, used by branches with no override.
-function! claude#difftree#set_base(branch) abort
+function! kimi#difftree#set_base(branch) abort
   let s:base_over = a:branch
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
 endfunction
 
-" :ClaudeDiffBase [base] — sets the base for the branch under the cursor.
+" :KimiDiffBase [base] — sets the base for the branch under the cursor.
 " With no argument it clears that branch's override.
-function! claude#difftree#base_command(args) abort
+function! kimi#difftree#base_command(args) abort
   let l:branch = s:cursor_branch()
   if empty(l:branch)
     echohl WarningMsg
-    echomsg 'claude.vim: put the cursor on a branch row first'
+    echomsg 'kimi.vim: put the cursor on a branch row first'
     echohl None
     return
   endif
-  call claude#difftree#set_branch_base(l:branch, trim(a:args))
+  call kimi#difftree#set_branch_base(l:branch, trim(a:args))
 endfunction
 
-" Completion for :ClaudeDiffBase.
-function! claude#difftree#complete_branch(lead, line, pos) abort
+" Completion for :KimiDiffBase.
+function! kimi#difftree#complete_branch(lead, line, pos) abort
   let l:root = s:repo_root()
   if empty(l:root)
     return []
@@ -212,11 +211,11 @@ endfunction
 
 " ── what to list ─────────────────────────────────────────────────────────────
 "
-" The panel answers "what has Claude changed?", so the branch list is the union
+" The panel answers "what has Kimi changed?", so the branch list is the union
 " of three things:
 "
 "   1. every worktree, as before — nothing that used to appear disappears;
-"   2. every branch a Claude session ran on, live or closed, taken from the
+"   2. every branch a Kimi session ran on, live or closed, taken from the
 "      session registry. A session records its branch at spawn time, so this
 "      surfaces work on branches that are no longer checked out anywhere;
 "   3. the branch currently checked out, if neither of those covered it.
@@ -269,10 +268,10 @@ function! s:build_sources() abort
   " Sessions are only on the registry once refresh() has scanned the
   " transcripts, and the diff tree must not depend on the session panel having
   " been opened first.
-  call claude#session#refresh()
+  call kimi#session#refresh()
   " all(), not list(): a branch is diffable whether or not the session that
   " worked on it is old enough for the panel to have buried it.
-  for l:rec in claude#session#all()
+  for l:rec in kimi#session#all()
     let l:branch = get(l:rec, 'branch', '')
     " Placeholders like (detached) or (no branch) are not diffable.
     if empty(l:branch) || l:branch[0] ==# '('
@@ -308,7 +307,7 @@ endfunction
 " So only a base-branch source with no worktree is skipped: the checkout you
 " are editing in must never disappear from the panel.
 function! s:skip(src) abort
-  return a:src.branch ==# claude#difftree#base_for(a:src.branch)
+  return a:src.branch ==# kimi#difftree#base_for(a:src.branch)
         \ && !a:src.has_worktree
 endfunction
 
@@ -319,7 +318,7 @@ endfunction
 " commits show as committed changes. With no upstream there is nothing
 " committed to show and the committed half is skipped entirely.
 function! s:compare_against(src) abort
-  let l:base = claude#difftree#base_for(a:src.branch)
+  let l:base = kimi#difftree#base_for(a:src.branch)
   if a:src.branch !=# l:base
     return l:base
   endif
@@ -329,7 +328,7 @@ function! s:compare_against(src) abort
 endfunction
 
 function! s:files_for(src) abort
-  let l:base = claude#difftree#base_for(a:src.branch)
+  let l:base = kimi#difftree#base_for(a:src.branch)
   " The branch belongs in the key: several branches with no worktree all run
   " git from the repository root and would otherwise collide.
   let l:key = a:src.worktree . '|' . a:src.branch . '|' . l:base
@@ -370,7 +369,7 @@ function! s:files_for(src) abort
       let l:files[l:path] = l:rec
     endfor
 
-    if get(g:, 'claude_difftree_show_untracked', 1)
+    if s:show_untracked
       for l:path in s:git(l:dir, 'ls-files --others --exclude-standard')
         if empty(l:path)
           continue
@@ -389,7 +388,7 @@ function! s:files_for(src) abort
 endfunction
 
 " 'committed', 'uncommitted' or 'both'.
-function! claude#difftree#status(rec) abort
+function! kimi#difftree#status(rec) abort
   if !empty(a:rec.committed) && !empty(a:rec.dirty)
     return 'both'
   endif
@@ -413,7 +412,7 @@ endfunction
 " A copy of nerdtree-git-plugin's three maps, used only when the plugin is not
 " installed. Kept as codepoints exactly as gitstatus.vim writes them.
 function! s:embedded_map() abort
-  if claude#sidebar#ascii()
+  if kimi#sidebar#ascii()
     return {'Modified': '*', 'Staged': '+', 'Untracked': '!',
           \ 'Renamed': 'R', 'Unmerged': '=', 'Deleted': 'D',
           \ 'Dirty': 'X', 'Ignored': '?', 'Clean': 'C', 'Unknown': 'E'}
@@ -438,8 +437,8 @@ endfunction
 " exactly — including g:NERDTreeGitStatusUseNerdFonts and any
 " g:NERDTreeGitStatusIndicatorMapCustom. The exception is the panel's own
 " ASCII mode, which exists because the terminal cannot draw the glyphs at all.
-function! claude#difftree#indicator(key) abort
-  if !claude#sidebar#ascii() && exists('*gitstatus#getIndicator')
+function! kimi#difftree#indicator(key) abort
+  if !kimi#sidebar#ascii() && exists('*gitstatus#getIndicator')
     try
       return gitstatus#getIndicator(a:key)
     catch
@@ -460,11 +459,11 @@ function! s:glyph(letter) abort
   if empty(a:letter)
     return ''
   endif
-  return claude#difftree#indicator(get(s:letter_status, a:letter, 'Unknown'))
+  return kimi#difftree#indicator(get(s:letter_status, a:letter, 'Unknown'))
 endfunction
 
 " [branch-vs-base glyph, working-tree glyph]; either may be empty.
-function! claude#difftree#marks(rec) abort
+function! kimi#difftree#marks(rec) abort
   return [s:glyph(a:rec.committed), s:glyph(a:rec.dirty)]
 endfunction
 
@@ -472,7 +471,7 @@ endfunction
 function! s:all_glyphs() abort
   let l:out = ''
   for l:key in values(s:letter_status)
-    let l:g = claude#difftree#indicator(l:key)
+    let l:g = kimi#difftree#indicator(l:key)
     if stridx(l:out, l:g) < 0
       let l:out .= l:g
     endif
@@ -485,7 +484,7 @@ endfunction
 function! s:col_width() abort
   let l:w = 1
   for l:key in values(s:letter_status)
-    let l:w = max([l:w, strchars(claude#difftree#indicator(l:key))])
+    let l:w = max([l:w, strchars(kimi#difftree#indicator(l:key))])
   endfor
   return l:w
 endfunction
@@ -502,7 +501,7 @@ endfunction
 " came from, and the filename's colour depends on knowing whether there is
 " uncommitted work.
 function! s:field(rec) abort
-  let [l:c1, l:c2] = claude#difftree#marks(a:rec)
+  let [l:c1, l:c2] = kimi#difftree#marks(a:rec)
   if empty(l:c1) && empty(l:c2)
     return ''
   elseif !empty(l:c2)
@@ -521,7 +520,7 @@ endfunction
 " ── model ────────────────────────────────────────────────────────────────────
 
 " Flat list of every changed file across every listed worktree.
-function! claude#difftree#files() abort
+function! kimi#difftree#files() abort
   let l:out = []
   for l:src in s:sources()
     if s:skip(l:src)
@@ -548,7 +547,7 @@ function! s:new_dir(name) abort
 endfunction
 
 " Fold {files} into a directory tree, then collapse runs of single-child
-" directories so `autoload/claude` is one node rather than two.
+" directories so `autoload/kimi` is one node rather than two.
 function! s:build_dirs(files) abort
   let l:root = s:new_dir('')
   for l:rec in a:files
@@ -567,7 +566,7 @@ function! s:build_dirs(files) abort
     endfor
     call add(l:node.files, l:rec)
   endfor
-  if get(g:, 'claude_difftree_collapse_dirs', 1)
+  if s:collapse_dirs
     call s:collapse(l:root)
   endif
   return l:root
@@ -595,7 +594,7 @@ endfunction
 " instead — `feature/delta (beta)` — and left off entirely for the repository's
 " main worktree, which is the implicit home. A branch with no checkout at all
 " is marked `(no worktree)`.
-function! claude#difftree#tree() abort
+function! kimi#difftree#tree() abort
   let l:rootkey = s:root_key()
   let l:out     = []
 
@@ -645,8 +644,8 @@ function! s:branch_label(src, rootkey) abort
   elseif a:src.worktree !=# a:rootkey
     let l:name .= ' (' . fnamemodify(a:src.worktree, ':t') . ')'
   endif
-  if claude#difftree#has_override(a:src.branch)
-    let l:name = '[' . claude#difftree#base_for(a:src.branch) . '] ' . l:name
+  if kimi#difftree#has_override(a:src.branch)
+    let l:name = '[' . kimi#difftree#base_for(a:src.branch) . '] ' . l:name
   endif
   return l:name
 endfunction
@@ -678,21 +677,21 @@ endfunction
 " which is not a standard Vim highlight group; Clean is never rendered by this
 " panel, so it is simply omitted rather than given an invented fallback.
 let s:highlights = [
-      \ ['ClaudeDiffHeader',      'NERDTreeCWD',              'Statement'],
-      \ ['ClaudeDiffProject',     'NERDTreeCWD',              'Statement'],
-      \ ['ClaudeDiffBranch',      '',                         'Type'],
-      \ ['ClaudeDiffBaseTag',     '',                         'Identifier'],
-      \ ['ClaudeDiffLocal',       '',                         'Comment'],
-      \ ['ClaudeDiffDir',         'NERDTreeDir',              'Directory'],
-      \ ['ClaudeDiffMarker',      'NERDTreeClosable',         'Directory'],
-      \ ['ClaudeDiffCommitted',   'NERDTreeFile',             'Normal'],
-      \ ['ClaudeDiffUncommitted', 'NERDTreeFlags',            'Number'],
-      \ ['ClaudeDiffModified',    'NERDTreeGitStatusModified',  'Special'],
-      \ ['ClaudeDiffUntracked',   'NERDTreeGitStatusUntracked', 'Comment'],
-      \ ['ClaudeDiffRenamed',     'NERDTreeGitStatusRenamed',   'Title'],
-      \ ['ClaudeDiffUnmerged',    'NERDTreeGitStatusUnmerged',  'Label'],
-      \ ['ClaudeDiffField',       '',                         'Normal'],
-      \ ['ClaudeDiffHelp',        'NERDTreeHelp',             'String'],
+      \ ['KimiDiffHeader',      'NERDTreeCWD',              'Statement'],
+      \ ['KimiDiffProject',     'NERDTreeCWD',              'Statement'],
+      \ ['KimiDiffBranch',      '',                         'Type'],
+      \ ['KimiDiffBaseTag',     '',                         'Identifier'],
+      \ ['KimiDiffLocal',       '',                         'Comment'],
+      \ ['KimiDiffDir',         'NERDTreeDir',              'Directory'],
+      \ ['KimiDiffMarker',      'NERDTreeClosable',         'Directory'],
+      \ ['KimiDiffCommitted',   'NERDTreeFile',             'Normal'],
+      \ ['KimiDiffUncommitted', 'NERDTreeFlags',            'Number'],
+      \ ['KimiDiffModified',    'NERDTreeGitStatusModified',  'Special'],
+      \ ['KimiDiffUntracked',   'NERDTreeGitStatusUntracked', 'Comment'],
+      \ ['KimiDiffRenamed',     'NERDTreeGitStatusRenamed',   'Title'],
+      \ ['KimiDiffUnmerged',    'NERDTreeGitStatusUnmerged',  'Label'],
+      \ ['KimiDiffField',       '',                         'Normal'],
+      \ ['KimiDiffHelp',        'NERDTreeHelp',             'String'],
       \ ]
 
 " Added is green and removed is red, taken from DiffAdd and DiffDelete so they
@@ -703,8 +702,8 @@ let s:highlights = [
 " glyph. This is nerdtree-git-plugin's own technique
 " (after/syntax/nerdtree.vim:s:highlightFromGroup).
 let s:fg_sources = [
-      \ ['ClaudeDiffStaged',  'DiffAdd'],
-      \ ['ClaudeDiffDeleted', 'DiffDelete'],
+      \ ['KimiDiffStaged',  'DiffAdd'],
+      \ ['KimiDiffDeleted', 'DiffDelete'],
       \ ]
 
 function! s:link_fg(group, source) abort
@@ -728,8 +727,8 @@ function! s:link_fg(group, source) abort
         \ . (empty(l:gui)   ? '' : ' guifg='   . l:gui)
 endfunction
 
-function! claude#difftree#_relink() abort
-  call claude#sidebar#link_highlights(s:highlights)
+function! kimi#difftree#_relink() abort
+  call kimi#sidebar#link_highlights(s:highlights)
   for [l:group, l:source] in s:fg_sources
     call s:link_fg(l:group, l:source)
   endfor
@@ -737,25 +736,25 @@ endfunction
 
 function! s:setup_syntax() abort
   silent! syntax clear
-  let l:m = claude#sidebar#marker_class()
+  let l:m = kimi#sidebar#marker_class()
 
   " Node rows are told apart by indent, so all of these move when the tree
   " gains the worktree level: project 0, worktree 2, branch 4, directories 6+.
-  execute 'syntax match ClaudeDiffProject    /^' . l:m
-        \ . ' .*$/ contains=ClaudeDiffMarker'
+  execute 'syntax match KimiDiffProject    /^' . l:m
+        \ . ' .*$/ contains=KimiDiffMarker'
   " Branch rows are yellow by default; a branch with no upstream is greyed by
   " a text property instead, since whether one exists is not visible in the
   " row's text and :syntax has nothing to match on.
-  execute 'syntax match ClaudeDiffBranch  /^  ' . l:m
-        \ . ' .*$/ contains=ClaudeDiffMarker,ClaudeDiffBaseTag'
+  execute 'syntax match KimiDiffBranch  /^  ' . l:m
+        \ . ' .*$/ contains=KimiDiffMarker,KimiDiffBaseTag'
   " The bracketed base reads as metadata, not part of the branch name. It sits
   " right after the fold marker, so it cannot be confused with a file row's
   " indicator field, which has no marker before it.
-  execute 'syntax match ClaudeDiffBaseTag /\%(^  ' . l:m
+  execute 'syntax match KimiDiffBaseTag /\%(^  ' . l:m
         \ . ' \)\@<=\[[^]]*\]/ contained'
-  execute 'syntax match ClaudeDiffDir     /^ \{4,}' . l:m
-        \ . ' .*$/ contains=ClaudeDiffMarker'
-  execute 'syntax match ClaudeDiffMarker  /' . l:m . '/ contained'
+  execute 'syntax match KimiDiffDir     /^ \{4,}' . l:m
+        \ . ' .*$/ contains=KimiDiffMarker'
+  execute 'syntax match KimiDiffMarker  /' . l:m . '/ contained'
 
   " A file row is an indent, two indicator columns and a space, then the name.
   "
@@ -772,17 +771,17 @@ function! s:setup_syntax() abort
 
   let l:groups = []
   for [l:key, l:group] in [
-        \ ['Modified',  'ClaudeDiffModified'],
-        \ ['Staged',    'ClaudeDiffStaged'],
-        \ ['Untracked', 'ClaudeDiffUntracked'],
-        \ ['Renamed',   'ClaudeDiffRenamed'],
-        \ ['Unmerged',  'ClaudeDiffUnmerged'],
-        \ ['Deleted',   'ClaudeDiffDeleted'],
+        \ ['Modified',  'KimiDiffModified'],
+        \ ['Staged',    'KimiDiffStaged'],
+        \ ['Untracked', 'KimiDiffUntracked'],
+        \ ['Renamed',   'KimiDiffRenamed'],
+        \ ['Unmerged',  'KimiDiffUnmerged'],
+        \ ['Deleted',   'KimiDiffDeleted'],
         \ ]
     " A glyph is user-configurable and may contain regex metacharacters, so it
     " is escaped into a literal match.
     execute 'syntax match ' . l:group . ' /'
-          \ . escape(claude#difftree#indicator(l:key), '/\.*$^~[]')
+          \ . escape(kimi#difftree#indicator(l:key), '/\.*$^~[]')
           \ . '/ contained'
     call add(l:groups, l:group)
   endfor
@@ -791,26 +790,26 @@ function! s:setup_syntax() abort
   " The filename is coloured by whether the working-tree slot is filled, which
   " is what says the file still has uncommitted work in it. A separator in the
   " field is exactly what marks that case.
-  execute 'syntax match ClaudeDiffField /^ \{2,}\[' . l:any . '|' . l:some
-        \ . '\] / ' . l:contains . ' nextgroup=ClaudeDiffUncommitted'
-  execute 'syntax match ClaudeDiffField /^ \{2,}\[' . l:some . '\] / '
-        \ . l:contains . ' nextgroup=ClaudeDiffCommitted'
-  syntax match ClaudeDiffCommitted   /\S.*$/ contained
-  syntax match ClaudeDiffUncommitted /\S.*$/ contained
+  execute 'syntax match KimiDiffField /^ \{2,}\[' . l:any . '|' . l:some
+        \ . '\] / ' . l:contains . ' nextgroup=KimiDiffUncommitted'
+  execute 'syntax match KimiDiffField /^ \{2,}\[' . l:some . '\] / '
+        \ . l:contains . ' nextgroup=KimiDiffCommitted'
+  syntax match KimiDiffCommitted   /\S.*$/ contained
+  syntax match KimiDiffUncommitted /\S.*$/ contained
 
-  syntax match ClaudeDiffHeader /\%1lGit Diff.*/
-  syntax match ClaudeDiffHelp /^? help$/
-  syntax match ClaudeDiffHelp /^ \S.*$/
+  syntax match KimiDiffHeader /\%1lGit Diff.*/
+  syntax match KimiDiffHelp /^? help$/
+  syntax match KimiDiffHelp /^ \S.*$/
 endfunction
 
 " ── rendering ────────────────────────────────────────────────────────────────
 
 function! s:width() abort
-  return get(g:, 'claude_difftree_width', 35)
+  return 35
 endfunction
 
 function! s:marker(key) abort
-  return claude#sidebar#marker(!has_key(s:collapsed, a:key))
+  return kimi#sidebar#marker(!has_key(s:collapsed, a:key))
 endfunction
 
 " A directory is forced open while a filter is narrowing the tree, so matches
@@ -852,7 +851,7 @@ endfunction
 function! s:build() abort
   let l:lines = []
   let l:nodes = []
-  let l:base  = claude#difftree#base()
+  let l:base  = kimi#difftree#base()
 
   let l:title = 'Git Diff'
   let l:right = (empty(l:base) ? '(no base)' : l:base)
@@ -876,7 +875,7 @@ function! s:build() abort
 
   call s:add(l:lines, l:nodes, '', s:node('blank', '', '', '', ''))
 
-  if !claude#difftree#is_repo()
+  if !kimi#difftree#is_repo()
     call s:add(l:lines, l:nodes, '  (not a git repository)',
           \ s:node('empty', '', '', '', ''))
     return [l:lines, l:nodes]
@@ -887,7 +886,7 @@ function! s:build() abort
     return [l:lines, l:nodes]
   endif
 
-  let l:tree = claude#difftree#tree()
+  let l:tree = kimi#difftree#tree()
   if empty(l:tree)
     call s:add(l:lines, l:nodes,
           \ empty(s:filter)
@@ -928,9 +927,9 @@ function! s:mark_local_branches(nodes) abort
   if !has('textprop')
     return
   endif
-  if empty(prop_type_get('ClaudeDiffLocal', {'bufnr': s:bufnr}))
-    call prop_type_add('ClaudeDiffLocal',
-          \ {'bufnr': s:bufnr, 'highlight': 'ClaudeDiffLocal'})
+  if empty(prop_type_get('KimiDiffLocal', {'bufnr': s:bufnr}))
+    call prop_type_add('KimiDiffLocal',
+          \ {'bufnr': s:bufnr, 'highlight': 'KimiDiffLocal'})
   endif
   call prop_clear(1, len(a:nodes), {'bufnr': s:bufnr})
   let l:i = 0
@@ -943,7 +942,7 @@ function! s:mark_local_branches(nodes) abort
     if empty(l:line)
       continue
     endif
-    call prop_add(l:i, 1, {'bufnr': s:bufnr, 'type': 'ClaudeDiffLocal',
+    call prop_add(l:i, 1, {'bufnr': s:bufnr, 'type': 'KimiDiffLocal',
           \ 'length': len(l:line[0])})
   endfor
 endfunction
@@ -971,56 +970,56 @@ endfunction
 
 " ── window ───────────────────────────────────────────────────────────────────
 
-function! claude#difftree#bufnr() abort
+function! kimi#difftree#bufnr() abort
   return s:bufnr
 endfunction
 
-function! claude#difftree#winid() abort
+function! kimi#difftree#winid() abort
   return s:bufnr == -1 ? -1 : bufwinid(s:bufnr)
 endfunction
 
-function! claude#difftree#is_open() abort
+function! kimi#difftree#is_open() abort
   return s:bufnr != -1 && bufexists(s:bufnr) && bufwinid(s:bufnr) != -1
 endfunction
 
-function! claude#difftree#toggle() abort
-  if claude#difftree#is_open()
-    call claude#difftree#close()
+function! kimi#difftree#toggle() abort
+  if kimi#difftree#is_open()
+    call kimi#difftree#close()
   else
-    call claude#difftree#open()
+    call kimi#difftree#open()
   endif
 endfunction
 
-function! claude#difftree#open() abort
-  if claude#difftree#is_open()
+function! kimi#difftree#open() abort
+  if kimi#difftree#is_open()
     call win_gotoid(bufwinid(s:bufnr))
     return
   endif
   let s:prev_winid = win_getid()
-  call claude#sidebar#open_window(s:width())
+  call kimi#sidebar#open_window(s:width())
 
   if s:bufnr != -1 && bufexists(s:bufnr)
     execute 'buffer ' . s:bufnr
   else
     enew
     let s:bufnr = bufnr('%')
-    silent! file [claude-diff]
+    silent! file [kimi-diff]
   endif
 
-  call claude#sidebar#buf_options('claudedifftree')
+  call kimi#sidebar#buf_options('kimidifftree')
   call s:setup_keys()
-  call claude#difftree#_relink()
+  call kimi#difftree#_relink()
   call s:setup_syntax()
 
   " Settle the geometry before running git, which is slow enough that Vim
   " could otherwise redraw the unstacked layout first.
-  call claude#sidebar#stack()
+  call kimi#sidebar#stack()
 
   call s:invalidate()
   call s:render()
 endfunction
 
-function! claude#difftree#close() abort
+function! kimi#difftree#close() abort
   if s:bufnr == -1
     return
   endif
@@ -1035,18 +1034,18 @@ function! claude#difftree#close() abort
 endfunction
 
 " Re-run git and rebuild. Safe to call when the panel is closed.
-function! claude#difftree#refresh() abort
+function! kimi#difftree#refresh() abort
   call s:invalidate()
-  if claude#difftree#is_open()
+  if kimi#difftree#is_open()
     call s:render()
   endif
 endfunction
 
 " BufWritePost hook: a save is the one event that reliably changes the dirty
 " set, and it is cheap enough to act on because it is rare.
-function! claude#difftree#_on_write() abort
-  if get(g:, 'claude_difftree_auto_refresh', 1) && claude#difftree#is_open()
-    call claude#difftree#refresh()
+function! kimi#difftree#_on_write() abort
+  if kimi#difftree#is_open()
+    call kimi#difftree#refresh()
   endif
 endfunction
 
@@ -1062,7 +1061,7 @@ function! s:setup_keys() abort
   nnoremap <buffer> <silent> i       :call <SID>open_mode('split')<CR>
   nnoremap <buffer> <silent> s       :call <SID>open_mode('vsplit')<CR>
   nnoremap <buffer> <silent> t       :call <SID>open_mode('tab')<CR>
-  nnoremap <buffer> <silent> R       :call claude#difftree#refresh()<CR>
+  nnoremap <buffer> <silent> R       :call kimi#difftree#refresh()<CR>
   nnoremap <buffer> <silent> b       :call <SID>prompt_base()<CR>
   nnoremap <buffer> <silent> B       :call <SID>prompt_default_base()<CR>
   nnoremap <buffer> <silent> d       :call <SID>remove_worktree(0)<CR>
@@ -1071,7 +1070,7 @@ function! s:setup_keys() abort
   nnoremap <buffer> <silent> <Esc>   :call <SID>clear_filter()<CR>
   nnoremap <buffer> <silent> za      :call <SID>fold()<CR>
   nnoremap <buffer> <silent> <Space> :call <SID>fold()<CR>
-  nnoremap <buffer> <silent> q       :call claude#difftree#close()<CR>
+  nnoremap <buffer> <silent> q       :call kimi#difftree#close()<CR>
   nnoremap <buffer> <silent> ?       :call <SID>help()<CR>
 endfunction
 
@@ -1089,7 +1088,7 @@ function! s:activate() abort
     return
   endif
   if l:node.kind ==# 'file'
-    call claude#difftree#open_file(l:node.payload, 'here')
+    call kimi#difftree#open_file(l:node.payload, 'here')
   elseif !empty(l:node.key)
     call s:fold()
   endif
@@ -1098,7 +1097,7 @@ endfunction
 function! s:open_mode(mode) abort
   let l:node = s:current()
   if !empty(l:node) && l:node.kind ==# 'file'
-    call claude#difftree#open_file(l:node.payload, a:mode)
+    call kimi#difftree#open_file(l:node.payload, a:mode)
   endif
 endfunction
 
@@ -1128,19 +1127,19 @@ function! s:prompt_base() abort
     return
   endif
   let l:new = input('Diff ' . l:branch . ' against: ',
-        \ claude#difftree#base_for(l:branch),
-        \ 'customlist,claude#difftree#complete_branch')
+        \ kimi#difftree#base_for(l:branch),
+        \ 'customlist,kimi#difftree#complete_branch')
   redraw
-  call claude#difftree#set_branch_base(l:branch, l:new)
+  call kimi#difftree#set_branch_base(l:branch, l:new)
 endfunction
 
 " B: set the session-wide default, used by branches with no override.
 function! s:prompt_default_base() abort
-  let l:new = input('Diff against (default): ', claude#difftree#base(),
-        \ 'customlist,claude#difftree#complete_branch')
+  let l:new = input('Diff against (default): ', kimi#difftree#base(),
+        \ 'customlist,kimi#difftree#complete_branch')
   redraw
   if !empty(l:new)
-    call claude#difftree#set_base(l:new)
+    call kimi#difftree#set_base(l:new)
   endif
 endfunction
 
@@ -1148,7 +1147,7 @@ endfunction
 " checkout or not a plugin-managed workspace at all.
 function! s:workspace_for_path(path) abort
   let l:want = resolve(a:path)
-  for l:rec in claude#workspace#list()
+  for l:rec in kimi#workspace#list()
     if resolve(l:rec.path) ==# l:want
       return l:rec
     endif
@@ -1182,10 +1181,10 @@ function! s:remove_worktree(force) abort
     return
   endif
 
-  let l:ok = a:force ? claude#workspace#force_remove(l:ws.id)
-        \            : claude#workspace#remove(l:ws.id)
+  let l:ok = a:force ? kimi#workspace#force_remove(l:ws.id)
+        \            : kimi#workspace#remove(l:ws.id)
   if l:ok
-    call claude#difftree#refresh()
+    call kimi#difftree#refresh()
   endif
 endfunction
 
@@ -1245,70 +1244,82 @@ function! s:clear_filter() abort
   endif
 endfunction
 
-function! claude#difftree#filter() abort
+function! kimi#difftree#filter() abort
   return s:filter
 endfunction
 
-function! claude#difftree#set_filter(text) abort
+function! kimi#difftree#set_filter(text) abort
   let s:filter = a:text
   call s:render()
 endfunction
 
 " ── opening a file ───────────────────────────────────────────────────────────
 
-function! claude#difftree#open_file(rec, mode) abort
+function! kimi#difftree#open_file(rec, mode) abort
   if type(a:rec) != v:t_dict
     return
   endif
   let l:full = a:rec.worktree . '/' . a:rec.path
   if !filereadable(l:full)
     echohl WarningMsg
-    echomsg 'claude.vim: ' . a:rec.path . ' no longer exists on disk'
+    echomsg 'kimi.vim: ' . a:rec.path . ' no longer exists on disk'
     echohl None
     return
   endif
   " <CR> reuses the window the user was last working in, the way NERDTree
-  " does, rather than going through claude#sidebar#make_window(): that
-  " function's 'here' opens an anchored split, which is what a Claude
+  " does, rather than going through kimi#sidebar#make_window(): that
+  " function's 'here' opens an anchored split, which is what a Kimi
   " terminal wants and what a file does not. The splitting modes still go
   " through it.
   if a:mode ==# 'here'
-    let l:target = claude#sidebar#last_main_winid()
-    call claude#sidebar#enter_main(l:target > 0 ? l:target : s:prev_winid)
+    let l:target = kimi#sidebar#last_main_winid()
+    call kimi#sidebar#enter_main(l:target > 0 ? l:target : s:prev_winid)
   else
-    call claude#sidebar#make_window(a:mode, s:prev_winid)
+    call kimi#sidebar#make_window(a:mode, s:prev_winid)
   endif
   execute 'edit ' . fnameescape(l:full)
 endfunction
 
 " ── test seam ────────────────────────────────────────────────────────────────
 
-function! claude#difftree#_lines() abort
+function! kimi#difftree#_lines() abort
   if s:bufnr == -1 || !bufexists(s:bufnr)
     return []
   endif
   return getbufline(s:bufnr, 1, '$')
 endfunction
 
-function! claude#difftree#_nodes() abort
+function! kimi#difftree#_nodes() abort
   return s:nodes
 endfunction
 
-function! claude#difftree#_reset() abort
+function! kimi#difftree#_reset() abort
   if s:bufnr != -1 && bufexists(s:bufnr)
     silent! execute 'bwipeout! ' . s:bufnr
   endif
-  let s:bufnr      = -1
-  let s:prev_winid = -1
-  let s:collapsed  = {}
-  let s:nodes      = []
-  let s:cache      = {}
-  let s:sources    = []
-  let s:sources_ok = 0
-  let s:base_over  = ''
-  let s:base_cache = ''
-  let s:bases      = {}
-  let s:bases_ok   = 0
-  let s:filter     = ''
-  let s:show_help  = 0
+  let s:bufnr           = -1
+  let s:prev_winid      = -1
+  let s:collapsed       = {}
+  let s:nodes           = []
+  let s:cache           = {}
+  let s:sources         = []
+  let s:sources_ok      = 0
+  let s:base_over       = ''
+  let s:base_cache      = ''
+  let s:bases           = {}
+  let s:bases_ok        = 0
+  let s:filter          = ''
+  let s:show_help       = 0
+  let s:collapse_dirs   = 1
+  let s:show_untracked  = 1
+endfunction
+
+" Bend the built-in directory collapsing. Test seam.
+function! kimi#difftree#_set_collapse_dirs(value) abort
+  let s:collapse_dirs = a:value ? 1 : 0
+endfunction
+
+" Bend the built-in untracked-files inclusion. Test seam.
+function! kimi#difftree#_set_show_untracked(value) abort
+  let s:show_untracked = a:value ? 1 : 0
 endfunction

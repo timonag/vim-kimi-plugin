@@ -2,7 +2,8 @@
 " and how an explicit choice overrides a detected one.
 
 Before:
-  call claude#difftree#_reset()
+  call kimi#difftree#_reset()
+  call kimi#store#_reset()
   let g:_cwd  = getcwd()
   let g:_repo = tempname()
   call mkdir(g:_repo, 'p')
@@ -13,99 +14,90 @@ Before:
   call writefile(['one'], g:_repo . '/a.txt')
   call system(g:_g . 'add -A')
   call system(g:_g . 'commit -qm base')
-  let g:_saved_base = get(g:, 'claude_difftree_base', '')
-  let g:claude_difftree_base = ''
-  " Keep the per-branch base store out of the plugin's data directory.
-  let g:_saved_dtstore = get(g:, 'claude_difftree_store', '')
-  let g:claude_difftree_store = g:_repo . '.bases.json'
+  " Keep the stores out of the plugin's data directory.
+  let g:_stores = g:_repo . '-stores'
+  call mkdir(g:_stores, 'p')
+  call kimi#store#_set_root(g:_stores)
   execute 'cd ' . fnameescape(g:_repo)
 
 After:
   execute 'cd ' . fnameescape(g:_cwd)
-  let g:claude_difftree_base = g:_saved_base
-  let g:claude_difftree_store = g:_saved_dtstore
-  call delete(g:_repo . '.bases.json')
-  call claude#difftree#_reset()
+  call kimi#store#_reset()
+  call kimi#difftree#_reset()
+  call delete(g:_stores, 'rf')
   call delete(g:_repo, 'rf')
 
 " ── detection ────────────────────────────────────────────────────────────────
 
 Execute (main is detected when there is no remote):
-  AssertEqual 'main', claude#difftree#base()
+  AssertEqual 'main', kimi#difftree#base()
 
 Execute (master is detected when there is no main):
   call system(g:_g . 'branch -m main master')
-  call claude#difftree#_reset()
-  AssertEqual 'master', claude#difftree#base()
+  call kimi#difftree#_reset()
+  AssertEqual 'master', kimi#difftree#base()
 
 Execute (origin/HEAD wins over the main/master guesses):
   " Point a fake remote's HEAD at a branch named neither main nor master.
   call system(g:_g . 'checkout -q -b trunk')
   call system(g:_g . 'update-ref refs/remotes/origin/trunk refs/heads/trunk')
   call system(g:_g . 'symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk')
-  call claude#difftree#_reset()
-  AssertEqual 'trunk', claude#difftree#base(),
+  call kimi#difftree#_reset()
+  AssertEqual 'trunk', kimi#difftree#base(),
         \ 'origin/HEAD is the most authoritative source'
 
 Execute (nothing resolvable outside a repository):
   let plain = tempname()
   call mkdir(plain, 'p')
   execute 'cd ' . fnameescape(plain)
-  call claude#difftree#_reset()
-  AssertEqual '', claude#difftree#base()
+  call kimi#difftree#_reset()
+  AssertEqual '', kimi#difftree#base()
   execute 'cd ' . fnameescape(g:_repo)
   call delete(plain, 'rf')
 
 " ── configuration and override ───────────────────────────────────────────────
 
-Execute (the configured default wins over detection):
-  let g:claude_difftree_base = 'configured-branch'
-  AssertEqual 'configured-branch', claude#difftree#base()
-  let g:claude_difftree_base = ''
-
-Execute (an explicit :ClaudeDiffBase wins over the configured default):
-  " The command is a deliberate act; the global is only a starting point.
-  let g:claude_difftree_base = 'configured-branch'
-  call claude#difftree#set_base('chosen-branch')
-  AssertEqual 'chosen-branch', claude#difftree#base()
-  let g:claude_difftree_base = ''
+Execute (an explicit :KimiDiffBase wins over detection):
+  " The command is a deliberate act; detection is only the starting point.
+  call kimi#difftree#set_base('chosen-branch')
+  AssertEqual 'chosen-branch', kimi#difftree#base()
 
 Execute (the override survives a refresh):
-  call claude#difftree#set_base('sticky')
-  call claude#difftree#refresh()
-  AssertEqual 'sticky', claude#difftree#base()
+  call kimi#difftree#set_base('sticky')
+  call kimi#difftree#refresh()
+  AssertEqual 'sticky', kimi#difftree#base()
 
 Execute (a reset clears the override and detection runs again):
-  call claude#difftree#set_base('temporary')
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base()
+  call kimi#difftree#set_base('temporary')
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base()
 
 " ── a base that does not exist ───────────────────────────────────────────────
 
 Execute (a non-existent base yields no files rather than throwing):
-  call claude#difftree#set_base('no-such-branch')
-  AssertEqual 'no-such-branch', claude#difftree#base()
+  call kimi#difftree#set_base('no-such-branch')
+  AssertEqual 'no-such-branch', kimi#difftree#base()
   " git fails; the committed set is simply empty and nothing is raised.
-  AssertEqual [], claude#difftree#files()
+  AssertEqual [], kimi#difftree#files()
 
 " ── completion ───────────────────────────────────────────────────────────────
 
 Execute (branch completion offers the repository's branches):
   call system(g:_g . 'branch feature-x')
-  let names = claude#difftree#complete_branch('', '', 0)
+  let names = kimi#difftree#complete_branch('', '', 0)
   Assert index(names, 'main') >= 0, 'expected main in ' . string(names)
   Assert index(names, 'feature-x') >= 0, 'expected feature-x in ' . string(names)
 
 Execute (completion filters by the typed prefix):
   call system(g:_g . 'branch feature-x')
-  let names = claude#difftree#complete_branch('feat', '', 0)
+  let names = kimi#difftree#complete_branch('feat', '', 0)
   AssertEqual ['feature-x'], names
 
 Execute (completion outside a repository is empty, not an error):
   let plain = tempname()
   call mkdir(plain, 'p')
   execute 'cd ' . fnameescape(plain)
-  AssertEqual [], claude#difftree#complete_branch('', '', 0)
+  AssertEqual [], kimi#difftree#complete_branch('', '', 0)
   execute 'cd ' . fnameescape(g:_repo)
   call delete(plain, 'rf')
 
@@ -115,9 +107,9 @@ Execute (g:gitgutter_diff_base is never read or written):
   " The two settings are deliberately independent: changing the tree's base
   " must not silently restyle every buffer's gitgutter signs.
   let g:gitgutter_diff_base = 'sentinel'
-  call claude#difftree#set_base('other-branch')
+  call kimi#difftree#set_base('other-branch')
   AssertEqual 'sentinel', g:gitgutter_diff_base
-  AssertEqual 'other-branch', claude#difftree#base()
+  AssertEqual 'other-branch', kimi#difftree#base()
   unlet g:gitgutter_diff_base
 
 " ── per-branch bases ─────────────────────────────────────────────────────────
@@ -125,80 +117,76 @@ Execute (g:gitgutter_diff_base is never read or written):
 " Each branch can diff against something of its own, persisted so the choice
 " survives a Vim restart. Resolution, most specific first:
 "
-"   the branch's own override  ->  the session default (B)
-"   ->  g:claude_difftree_base  ->  auto-detection
+"   the branch's own override  ->  the session default (B)  ->  auto-detection
 
 Execute (an override applies to one branch and leaves the others alone):
   call system(g:_g . 'branch feature-x')
   call system(g:_g . 'branch feature-y')
-  call claude#difftree#set_branch_base('feature-x', 'feature-y')
-  AssertEqual 'feature-y', claude#difftree#base_for('feature-x')
-  AssertEqual 'main',      claude#difftree#base_for('feature-y')
-  AssertEqual 'main',      claude#difftree#base_for('main')
+  call kimi#difftree#set_branch_base('feature-x', 'feature-y')
+  AssertEqual 'feature-y', kimi#difftree#base_for('feature-x')
+  AssertEqual 'main',      kimi#difftree#base_for('feature-y')
+  AssertEqual 'main',      kimi#difftree#base_for('main')
 
 Execute (the override survives a reload, which is what a Vim restart is):
   call system(g:_g . 'branch feature-x')
-  call claude#difftree#set_branch_base('feature-x', 'trunk-ish')
+  call kimi#difftree#set_branch_base('feature-x', 'trunk-ish')
   " Drop every scrap of in-memory state, as quitting Vim would.
-  call claude#difftree#_reset()
-  AssertEqual 'trunk-ish', claude#difftree#base_for('feature-x'),
+  call kimi#difftree#_reset()
+  AssertEqual 'trunk-ish', kimi#difftree#base_for('feature-x'),
         \ 'the override must be read back from disk, not from memory'
 
-Execute (it is written to the store file, not the session store):
-  call claude#difftree#set_branch_base('feature-x', 'feature-y')
-  let raw = json_decode(join(readfile(g:claude_difftree_store), "\n"))
+Execute (it is written to the diff base store, not the session store):
+  call kimi#difftree#set_branch_base('feature-x', 'feature-y')
+  let raw = json_decode(join(readfile(kimi#store#difftree_path()), "\n"))
   AssertEqual 1, raw.version
   AssertEqual 'feature-y', raw.bases[resolve(g:_repo)]['feature-x']
 
 Execute (an empty base clears the override):
-  call claude#difftree#set_branch_base('feature-x', 'feature-y')
-  AssertEqual 'feature-y', claude#difftree#base_for('feature-x')
-  call claude#difftree#set_branch_base('feature-x', '')
-  AssertEqual 'main', claude#difftree#base_for('feature-x')
-  AssertEqual 0, claude#difftree#has_override('feature-x')
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base_for('feature-x'),
+  call kimi#difftree#set_branch_base('feature-x', 'feature-y')
+  AssertEqual 'feature-y', kimi#difftree#base_for('feature-x')
+  call kimi#difftree#set_branch_base('feature-x', '')
+  AssertEqual 'main', kimi#difftree#base_for('feature-x')
+  AssertEqual 0, kimi#difftree#has_override('feature-x')
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base_for('feature-x'),
         \ 'clearing must persist too'
 
 " ── the session default ──────────────────────────────────────────────────────
 
 Execute (B sets a default for branches with no override of their own):
-  call claude#difftree#set_base('session-default')
-  AssertEqual 'session-default', claude#difftree#base_for('anything')
-  AssertEqual 'session-default', claude#difftree#base()
+  call kimi#difftree#set_base('session-default')
+  AssertEqual 'session-default', kimi#difftree#base_for('anything')
+  AssertEqual 'session-default', kimi#difftree#base()
 
 Execute (a per-branch override always beats the session default):
-  call claude#difftree#set_branch_base('feature-x', 'mine')
-  call claude#difftree#set_base('session-default')
-  AssertEqual 'mine',            claude#difftree#base_for('feature-x')
-  AssertEqual 'session-default', claude#difftree#base_for('other')
+  call kimi#difftree#set_branch_base('feature-x', 'mine')
+  call kimi#difftree#set_base('session-default')
+  AssertEqual 'mine',            kimi#difftree#base_for('feature-x')
+  AssertEqual 'session-default', kimi#difftree#base_for('other')
 
 Execute (a cleared branch falls back to the session default):
-  call claude#difftree#set_branch_base('feature-x', 'mine')
-  call claude#difftree#set_base('session-default')
-  call claude#difftree#set_branch_base('feature-x', '')
-  AssertEqual 'session-default', claude#difftree#base_for('feature-x')
+  call kimi#difftree#set_branch_base('feature-x', 'mine')
+  call kimi#difftree#set_base('session-default')
+  call kimi#difftree#set_branch_base('feature-x', '')
+  AssertEqual 'session-default', kimi#difftree#base_for('feature-x')
 
 Execute (the session default is not persisted):
-  call claude#difftree#set_base('session-default')
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base(),
+  call kimi#difftree#set_base('session-default')
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base(),
         \ 'B lasts for the session only'
 
-Execute (full precedence: branch, then session, then global, then detection):
-  AssertEqual 'main', claude#difftree#base_for('feature-x')
-  let g:claude_difftree_base = 'from-global'
-  AssertEqual 'from-global', claude#difftree#base_for('feature-x')
-  call claude#difftree#set_base('from-session')
-  AssertEqual 'from-session', claude#difftree#base_for('feature-x')
-  call claude#difftree#set_branch_base('feature-x', 'from-branch')
-  AssertEqual 'from-branch', claude#difftree#base_for('feature-x')
-  let g:claude_difftree_base = ''
+Execute (full precedence: branch, then session, then detection):
+  AssertEqual 'main', kimi#difftree#base_for('feature-x')
+  call kimi#difftree#set_base('from-session')
+  AssertEqual 'from-session', kimi#difftree#base_for('feature-x')
+  call kimi#difftree#set_branch_base('feature-x', 'from-branch')
+  AssertEqual 'from-branch', kimi#difftree#base_for('feature-x')
 
 " ── scoping ──────────────────────────────────────────────────────────────────
 
 Execute (the same branch name in two repositories keeps separate bases):
-  call claude#difftree#set_branch_base('main', 'here')
+  call kimi#difftree#set_branch_base('main', 'here')
   let other = tempname()
   call mkdir(other, 'p')
   let og = 'git -C ' . shellescape(other) . ' '
@@ -209,38 +197,37 @@ Execute (the same branch name in two repositories keeps separate bases):
   call system(og . 'add -A')
   call system(og . 'commit -qm base')
   execute 'cd ' . fnameescape(other)
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base_for('main'),
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base_for('main'),
         \ 'the other repository must not inherit this one''s override'
   execute 'cd ' . fnameescape(g:_repo)
-  call claude#difftree#_reset()
-  AssertEqual 'here', claude#difftree#base_for('main')
+  call kimi#difftree#_reset()
+  AssertEqual 'here', kimi#difftree#base_for('main')
   call delete(other, 'rf')
 
 " ── the store degrades like the session store ────────────────────────────────
 
 Execute (a missing store just means no overrides):
-  call delete(g:claude_difftree_store)
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base_for('feature-x')
+  call delete(kimi#store#difftree_path())
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base_for('feature-x')
 
 Execute (a corrupt store is backed up and ignored):
-  call writefile(['{not json'], g:claude_difftree_store)
-  call claude#difftree#_reset()
-  silent let b = claude#difftree#base_for('feature-x')
+  call writefile(['{not json'], kimi#store#difftree_path())
+  call kimi#difftree#_reset()
+  silent let b = kimi#difftree#base_for('feature-x')
   AssertEqual 'main', b
-  Assert filereadable(g:claude_difftree_store . '.bak'),
+  Assert filereadable(kimi#store#difftree_path() . '.bak'),
         \ 'the unreadable file should be preserved'
-  call delete(g:claude_difftree_store . '.bak')
+  call delete(kimi#store#difftree_path() . '.bak')
 
 Execute (an unwritable store degrades instead of erroring):
-  let saved = g:claude_difftree_store
-  let g:claude_difftree_store = '/proc/nope/difftree.json'
-  call claude#store#_reset()
-  silent call claude#difftree#set_branch_base('feature-x', 'wherever')
-  AssertEqual 'main', claude#difftree#base_for('feature-x')
-  let g:claude_difftree_store = saved
-  call claude#store#_reset()
+  call kimi#store#_set_root('/proc/nope')
+  call kimi#store#_reset()
+  silent call kimi#difftree#set_branch_base('feature-x', 'wherever')
+  AssertEqual 'main', kimi#difftree#base_for('feature-x')
+  call kimi#store#_set_root(g:_stores)
+  call kimi#store#_reset()
 
 " ── the file cache must follow the per-branch base ───────────────────────────
 
@@ -256,19 +243,19 @@ Execute (two branches with different bases do not share a cache entry):
   call system(g:_g . 'add -A')
   call system(g:_g . 'commit -qm side')
   call system(g:_g . 'checkout -q main')
-  call claude#session#_inject({'name': 'a', 'status': 'closed',
+  call kimi#session#_inject({'name': 'a', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'feature'})
-  call claude#session#_inject({'name': 'b', 'status': 'closed',
+  call kimi#session#_inject({'name': 'b', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'side'})
-  call claude#difftree#set_branch_base('side', 'feature')
-  call claude#difftree#refresh()
-  let sidefiles = sort(map(filter(copy(claude#difftree#files()),
+  call kimi#difftree#set_branch_base('side', 'feature')
+  call kimi#difftree#refresh()
+  let sidefiles = sort(map(filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'side'}), {_, f -> f.path}))
-  let featfiles = sort(map(filter(copy(claude#difftree#files()),
+  let featfiles = sort(map(filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'feature'}), {_, f -> f.path}))
-  call claude#session#_reset()
+  call kimi#session#_reset()
   AssertEqual ['side.txt'], sidefiles,
         \ 'side vs feature should show only its own file'
   AssertEqual ['feature.txt'], featfiles,

@@ -7,9 +7,9 @@
 " Sidebars register themselves with a priority, and the column is always
 " ordered by it, top to bottom:
 "
-"   10  Claude sessions   (autoload/claude/panel.vim)
-"   20  Git diff tree     (autoload/claude/difftree.vim)
-"   30  NERDTree          (registered below)
+"   10  kimi sessions    (autoload/kimi/panel.vim)
+"   20  Git diff tree    (autoload/kimi/difftree.vim)
+"   30  NERDTree         (registered below)
 "
 " A registration is:
 "   name      unique string
@@ -22,7 +22,7 @@
 let s:registry    = []
 let s:stacked_ids = []
 
-function! claude#sidebar#register(spec) abort
+function! kimi#sidebar#register(spec) abort
   call filter(s:registry, 'v:val.name !=# a:spec.name')
   call add(s:registry, a:spec)
   call sort(s:registry, {a, b -> a.priority - b.priority})
@@ -45,7 +45,7 @@ function! s:spec_height(spec) abort
 endfunction
 
 " Live sidebar windows in this tab, ordered top to bottom.
-function! claude#sidebar#winids() abort
+function! kimi#sidebar#winids() abort
   let l:out = []
   for l:spec in s:registry
     let l:id = s:spec_winid(l:spec)
@@ -58,24 +58,32 @@ endfunction
 
 " Buffer numbers of every open sidebar, for callers that must not count them
 " as ordinary windows.
-function! claude#sidebar#bufnrs() abort
-  return map(claude#sidebar#winids(), {_, id -> winbufnr(win_id2win(id))})
+function! kimi#sidebar#bufnrs() abort
+  return map(kimi#sidebar#winids(), {_, id -> winbufnr(win_id2win(id))})
 endfunction
 
 " ── heights ──────────────────────────────────────────────────────────────────
 
-" Resolve one sidebar's height in lines.
-"
-" A percentage of the screen wins whenever it is a positive number, so the
-" column keeps its proportions on any terminal. Setting the percentage to 0
-" hands the decision back to the absolute line count, which is what configs
-" written before percentages existed still set.
-function! claude#sidebar#height_pct(pct_var, lines_var, lines_default) abort
-  let l:pct = get(g:, a:pct_var, 0)
-  if type(l:pct) == type(0) && l:pct > 0
+" Resolve one sidebar's height in lines: a percentage of the screen wins
+" whenever it is a positive number, so the column keeps its proportions on
+" any terminal; 0 or less falls back to the absolute line count. Tests pin
+" both through kimi#sidebar#_set_heights().
+let s:pct_override    = -1
+let s:lines_override  = -1
+
+function! kimi#sidebar#height_pct(pct, lines) abort
+  let l:pct   = s:pct_override   >= 0 ? s:pct_override   : a:pct
+  let l:lines = s:lines_override >= 0 ? s:lines_override : a:lines
+  if l:pct > 0
     return max([1, &lines * l:pct / 100])
   endif
-  return get(g:, a:lines_var, a:lines_default)
+  return l:lines
+endfunction
+
+" Pin the height resolution. Test seam; -1 restores the built-in answer.
+function! kimi#sidebar#_set_heights(pct, lines) abort
+  let s:pct_override   = a:pct
+  let s:lines_override = a:lines
 endfunction
 
 " ── NERDTree ─────────────────────────────────────────────────────────────────
@@ -87,7 +95,7 @@ endfunction
 " when the repair has to run to be invisible. g:NERDTree.GetWinNum() is the
 " same lookup, but going direct means this also works for a window tree, where
 " that variable is not set.
-function! claude#sidebar#nerdtree_winid() abort
+function! kimi#sidebar#nerdtree_winid() abort
   if exists('t:NERDTreeBufName')
     let l:nr = bufwinnr(t:NERDTreeBufName)
     if l:nr > 0
@@ -105,7 +113,7 @@ function! claude#sidebar#nerdtree_winid() abort
   return l:nr > 0 ? win_getid(l:nr) : -1
 endfunction
 
-function! claude#sidebar#nerdtree_bufnr() abort
+function! kimi#sidebar#nerdtree_bufnr() abort
   if !exists('t:NERDTreeBufName')
     return -1
   endif
@@ -113,20 +121,20 @@ function! claude#sidebar#nerdtree_bufnr() abort
 endfunction
 
 " NERDTree owns the bottom of the column and is never height-fixed.
-call claude#sidebar#register({
+call kimi#sidebar#register({
       \ 'name':     'nerdtree',
       \ 'priority': 30,
-      \ 'Winid':    function('claude#sidebar#nerdtree_winid'),
+      \ 'Winid':    function('kimi#sidebar#nerdtree_winid'),
       \ })
 
 " ── the ordered stack ────────────────────────────────────────────────────────
 
 function! s:stack_enabled() abort
-  return get(g:, 'claude_panel_nerdtree_stack', 1) && exists('*win_splitmove')
+  return exists('*win_splitmove')
 endfunction
 
 " True when {wins} are consecutive leaves of one 'col' node, in this order.
-function! claude#sidebar#is_stacked(wins) abort
+function! kimi#sidebar#is_stacked(wins) abort
   return s:find(winlayout(), a:wins)
 endfunction
 
@@ -184,14 +192,14 @@ endfunction
 " The sweep runs bottom-up so each move's target is already in its final
 " position: at most N-1 moves, and idempotent. Only registered sidebars are
 " touched, so an unrelated split is never pulled into the column.
-function! claude#sidebar#stack() abort
+function! kimi#sidebar#stack() abort
   if !s:stack_enabled()
     return
   endif
-  let l:wins    = claude#sidebar#winids()
+  let l:wins    = kimi#sidebar#winids()
   let l:changed = l:wins !=# s:stacked_ids
 
-  if len(l:wins) < 2 || claude#sidebar#is_stacked(l:wins)
+  if len(l:wins) < 2 || kimi#sidebar#is_stacked(l:wins)
     let s:stacked_ids = l:wins
     " Already in one column. Apply heights only when the set of sidebars just
     " changed -- a sidebar opening or closing is a transition; the poll timer
@@ -227,23 +235,23 @@ endfunction
 
 " ── the whole column at once ─────────────────────────────────────────────────
 
-" NERDTree is optional: without it installed the two Claude sidebars simply
+" NERDTree is optional: without it installed the two kimi sidebars simply
 " share the column between them.
-function! claude#sidebar#nerdtree_available() abort
+function! kimi#sidebar#nerdtree_available() abort
   return exists(':NERDTree') == 2
 endfunction
 
 function! s:nerdtree_available() abort
-  return claude#sidebar#nerdtree_available()
+  return kimi#sidebar#nerdtree_available()
 endfunction
 
 function! s:nerdtree_open() abort
-  return claude#sidebar#nerdtree_winid() > 0
+  return kimi#sidebar#nerdtree_winid() > 0
 endfunction
 
 " Every sidebar that could be open, is.
 function! s:all_open() abort
-  if !claude#panel#is_open() || !claude#difftree#is_open()
+  if !kimi#panel#is_open() || !kimi#difftree#is_open()
     return v:false
   endif
   return !s:nerdtree_available() || s:nerdtree_open()
@@ -252,30 +260,30 @@ endfunction
 " Raise or dismiss the entire sidebar column with one key.
 "
 " Opening is the common case, so anything already up is left alone and only
-" the missing sidebars are added; the column is closed outright only once all
-" three are showing, which makes the key a true toggle without ever tearing
-" down a panel the user had just opened on its own.
-function! claude#sidebar#toggle_all() abort
+" the missing sidebars are added; the column is closed outright only once
+" all three are showing, which makes the key a true toggle without ever
+" tearing down a panel the user had just opened on its own.
+function! kimi#sidebar#toggle_all() abort
   let l:cur = win_getid()
   try
     if s:all_open()
-      call claude#panel#close()
-      call claude#difftree#close()
+      call kimi#panel#close()
+      call kimi#difftree#close()
       if s:nerdtree_open()
         silent! NERDTreeClose
       endif
       return
     endif
-    if !claude#panel#is_open()
-      call claude#panel#open()
+    if !kimi#panel#is_open()
+      call kimi#panel#open()
     endif
-    if !claude#difftree#is_open()
-      call claude#difftree#open()
+    if !kimi#difftree#is_open()
+      call kimi#difftree#open()
     endif
     if s:nerdtree_available() && !s:nerdtree_open()
       silent! NERDTree
     endif
-    call claude#sidebar#stack()
+    call kimi#sidebar#stack()
   finally
     " Opening a sidebar focuses it; the key must leave the cursor where it was.
     if win_id2win(l:cur) > 0 && win_getid() != l:cur
@@ -300,14 +308,14 @@ endfunction
 " the window can be identified, so it is the hook that keeps the repair
 " invisible. NERDTreeInit stays wired up as a second chance, and the session
 " panel's poll timer remains the final backstop.
-function! claude#sidebar#_nerdtree_init() abort
-  call claude#sidebar#stack()
+function! kimi#sidebar#_nerdtree_init() abort
+  call kimi#sidebar#stack()
 endfunction
 
-" WinClosed hook. When a stacked sidebar goes the column collapses on its own,
-" so the only thing left to do is release the survivor's fixed height once it
-" is alone and should own the whole column again.
-function! claude#sidebar#_win_closed(winid) abort
+" WinClosed hook. When a stacked sidebar goes the column collapses on its
+" own, so the only thing left to do is release the survivor's fixed height
+" once it is alone and should own the whole column again.
+function! kimi#sidebar#_win_closed(winid) abort
   let l:id = str2nr(a:winid)
   if index(s:stacked_ids, l:id) == -1
     return
@@ -317,7 +325,7 @@ function! claude#sidebar#_win_closed(winid) abort
 endfunction
 
 function! s:settle() abort
-  let l:wins = claude#sidebar#winids()
+  let l:wins = kimi#sidebar#winids()
   if len(l:wins) == 1
     call win_execute(l:wins[0], 'setlocal nowinfixheight')
   endif
@@ -326,10 +334,8 @@ endfunction
 
 " ── window creation and targeting ────────────────────────────────────────────
 
-function! claude#sidebar#split_cmd(width) abort
-  let l:anchor = get(g:, 'claude_panel_anchor', 'left')
-  let l:pos    = l:anchor ==# 'right' ? 'botright' : 'topleft'
-  return l:pos . ' vertical ' . a:width . 'split'
+function! kimi#sidebar#split_cmd(width) abort
+  return 'topleft vertical ' . a:width . 'split'
 endfunction
 
 " Create the window a sidebar should live in.
@@ -343,19 +349,19 @@ endfunction
 "
 " Splitting inside the column never creates the second column, so there is
 " nothing to merge and the width cannot drift.
-function! claude#sidebar#open_window(width) abort
-  " With stacking off the sidebars are meant to stay in separate columns, so
-  " the shared-column shortcut must not apply either.
-  let l:existing = s:stack_enabled() ? claude#sidebar#winids() : []
+function! kimi#sidebar#open_window(width) abort
+  " With stacking unsupported the sidebars are meant to stay in separate
+  " columns, so the shared-column shortcut must not apply either.
+  let l:existing = s:stack_enabled() ? kimi#sidebar#winids() : []
   if empty(l:existing)
-    execute claude#sidebar#split_cmd(a:width)
+    execute kimi#sidebar#split_cmd(a:width)
     return
   endif
   call win_gotoid(l:existing[0])
   leftabove split
 endfunction
 
-function! claude#sidebar#buf_options(filetype) abort
+function! kimi#sidebar#buf_options(filetype) abort
   setlocal buftype=nofile
   setlocal bufhidden=hide
   setlocal noswapfile
@@ -373,7 +379,7 @@ endfunction
 
 " True when {winid} is any registered sidebar, rather than somewhere a file
 " may be opened.
-function! claude#sidebar#is_sidebar(winid) abort
+function! kimi#sidebar#is_sidebar(winid) abort
   if a:winid <= 0 || win_id2win(a:winid) <= 0
     return v:true
   endif
@@ -398,9 +404,9 @@ endfunction
 
 let s:last_main = -1
 
-function! claude#sidebar#note_focus() abort
+function! kimi#sidebar#note_focus() abort
   let l:id = win_getid()
-  if !claude#sidebar#is_sidebar(l:id)
+  if !kimi#sidebar#is_sidebar(l:id)
     let s:last_main = l:id
   endif
 endfunction
@@ -408,33 +414,33 @@ endfunction
 " The remembered window while it is still alive and still ordinary, else -1.
 " A window id is unique across tabs, so the aliveness check also keeps a
 " window in another tab from being offered here.
-function! claude#sidebar#last_main_winid() abort
+function! kimi#sidebar#last_main_winid() abort
   if s:last_main <= 0 || win_id2win(s:last_main) <= 0
     return -1
   endif
-  return claude#sidebar#is_sidebar(s:last_main) ? -1 : s:last_main
+  return kimi#sidebar#is_sidebar(s:last_main) ? -1 : s:last_main
 endfunction
 
 " Leave the sidebars for the main area. Returns 2 when a fresh window had to
 " be created (nothing but sidebars were open), 1 when an existing one was
 " entered. {prev_winid} is where the caller was before entering its panel.
-function! claude#sidebar#enter_main(prev_winid) abort
-  if !claude#sidebar#is_sidebar(win_getid())
+function! kimi#sidebar#enter_main(prev_winid) abort
+  if !kimi#sidebar#is_sidebar(win_getid())
     return 1
   endif
-  if !claude#sidebar#is_sidebar(a:prev_winid)
+  if !kimi#sidebar#is_sidebar(a:prev_winid)
     call win_gotoid(a:prev_winid)
     return 1
   endif
   " The remembered window is gone or is itself a sidebar: take any ordinary
   " window in this tab before falling back to creating one.
   for l:nr in range(1, winnr('$'))
-    if !claude#sidebar#is_sidebar(win_getid(l:nr))
+    if !kimi#sidebar#is_sidebar(win_getid(l:nr))
       call win_gotoid(win_getid(l:nr))
       return 1
     endif
   endfor
-  execute claude#split_cmd()
+  execute kimi#split_cmd()
   enew
   setlocal noswapfile
   return 2
@@ -442,18 +448,18 @@ endfunction
 
 " Create the window a file or terminal should be shown in. {mode} is 'here',
 " 'split', 'vsplit' or 'tab'.
-function! claude#sidebar#make_window(mode, prev_winid) abort
+function! kimi#sidebar#make_window(mode, prev_winid) abort
   if a:mode ==# 'tab'
     tabnew
     setlocal noswapfile
     return
   endif
   if a:mode ==# 'here'
-    call claude#sidebar#enter_main(a:prev_winid)
-    execute claude#split_cmd()
+    call kimi#sidebar#enter_main(a:prev_winid)
+    execute kimi#split_cmd()
     return
   endif
-  if claude#sidebar#enter_main(a:prev_winid) == 2
+  if kimi#sidebar#enter_main(a:prev_winid) == 2
     return                        " a fresh window was just created
   endif
   execute a:mode ==# 'vsplit' ? 'vertical split' : 'split'
@@ -461,34 +467,43 @@ endfunction
 
 " ── glyphs and text ──────────────────────────────────────────────────────────
 
-function! claude#sidebar#ascii() abort
-  return get(g:, 'claude_panel_ascii', 0) || &encoding !~? '^utf'
+" ASCII glyphs are used when the terminal cannot draw UTF-8. Tests force one
+" set or the other through kimi#sidebar#_force_ascii().
+let s:ascii_override = v:null
+
+function! kimi#sidebar#ascii() abort
+  return s:ascii_override is v:null ? &encoding !~? '^utf' : s:ascii_override
+endfunction
+
+" Test seam: v:null returns to deriving the answer from 'encoding'.
+function! kimi#sidebar#_force_ascii(value) abort
+  let s:ascii_override = a:value
 endfunction
 
 " Fold marker for an open or closed node.
-function! claude#sidebar#marker(is_open) abort
-  if claude#sidebar#ascii()
+function! kimi#sidebar#marker(is_open) abort
+  if kimi#sidebar#ascii()
     return a:is_open ? 'v' : '>'
   endif
   return a:is_open ? '▾' : '▸'
 endfunction
 
 " A character class matching either marker, whichever set is in use.
-function! claude#sidebar#marker_class() abort
-  return '[' . escape(claude#sidebar#marker(1)
-        \ . claude#sidebar#marker(0), ']^\-') . ']'
+function! kimi#sidebar#marker_class() abort
+  return '[' . escape(kimi#sidebar#marker(1)
+        \ . kimi#sidebar#marker(0), ']^\-') . ']'
 endfunction
 
 " Fit {text} into {width}, trimming from the left of a path so the
 " distinctive tail stays visible. a:1 = 'head' trims from the right instead,
 " for prose (a session's name or snippet) where the opening words are the
 " distinctive part.
-function! claude#sidebar#fit(width, indent, text, ...) abort
+function! kimi#sidebar#fit(width, indent, text, ...) abort
   let l:room = a:width - strchars(a:indent) - 1
   if l:room < 4 || strchars(a:text) <= l:room
     return a:text
   endif
-  let l:ellipsis = claude#sidebar#ascii() ? '...' : '…'
+  let l:ellipsis = kimi#sidebar#ascii() ? '...' : '…'
   let l:keep = l:room - strchars(l:ellipsis)
   if a:0 > 0 && a:1 ==# 'head'
     return strcharpart(a:text, 0, l:keep) . l:ellipsis
@@ -496,7 +511,7 @@ function! claude#sidebar#fit(width, indent, text, ...) abort
   return l:ellipsis . strcharpart(a:text, strchars(a:text) - l:keep)
 endfunction
 
-function! claude#sidebar#home_relative(path) abort
+function! kimi#sidebar#home_relative(path) abort
   let l:home = expand('~')
   if a:path[0 : len(l:home) - 1] ==# l:home
     return '~' . a:path[len(l:home) :]
@@ -526,7 +541,7 @@ endfunction
 " overwrite an existing link, including one we set ourselves — so an upgrade
 " is applied with `highlight! link`, and only when the current link is still
 " the fallback we chose. Anything the user set is left alone.
-function! claude#sidebar#link_highlights(map) abort
+function! kimi#sidebar#link_highlights(map) abort
   for [l:group, l:nerd, l:fallback] in a:map
     let l:want = (!empty(l:nerd) && hlexists(l:nerd)) ? l:nerd : l:fallback
     let l:cur  = s:link_target(l:group)
@@ -540,15 +555,18 @@ endfunction
 
 " ── test seam ────────────────────────────────────────────────────────────────
 
-function! claude#sidebar#_registry() abort
+function! kimi#sidebar#_registry() abort
   return map(copy(s:registry), {_, s -> s.name})
 endfunction
 
-function! claude#sidebar#_unregister(name) abort
+function! kimi#sidebar#_unregister(name) abort
   call filter(s:registry, 'v:val.name !=# a:name')
 endfunction
 
-function! claude#sidebar#_reset() abort
-  let s:stacked_ids = []
-  let s:last_main   = -1
+function! kimi#sidebar#_reset() abort
+  let s:stacked_ids    = []
+  let s:last_main      = -1
+  let s:ascii_override = v:null
+  let s:pct_override   = -1
+  let s:lines_override = -1
 endfunction

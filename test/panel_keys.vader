@@ -2,35 +2,33 @@
 " the guarantee that hiding the panel never touches a running session.
 
 Before:
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  let g:_saved_cmd   = get(g:, 'claude_cmd', 'claude')
-  let g:_saved_store = get(g:, 'claude_session_store', '')
-  let g:claude_cmd = 'sleep 30'
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
   let g:_store_dir = tempname()
   call mkdir(g:_store_dir, 'p')
-  let g:claude_session_store = g:_store_dir . '/sessions.json'
-  call claude#store#_reset()
+  call kimi#store#_set_root(g:_store_dir)
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
 
 After:
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#panel#_reset()
-  call claude#session#_reset()
-  let g:claude_cmd           = g:_saved_cmd
-  let g:claude_session_store = g:_saved_store
-  call claude#store#_reset()
+  call kimi#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#cli#_reset()
+  call kimi#store#_reset()
   call delete(g:_store_dir, 'rf')
   only
 
 " ── window and buffer options ────────────────────────────────────────────────
 
 Execute (the panel is a fixed-width scratch buffer):
-  call claude#panel#open()
-  Assert claude#panel#is_open(), 'the panel should be open'
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  Assert kimi#panel#is_open(), 'the panel should be open'
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   AssertEqual 'nofile', &buftype
   AssertEqual 'hide',   &bufhidden
   AssertEqual 0, &modifiable, 'the panel must not be editable'
@@ -38,127 +36,127 @@ Execute (the panel is a fixed-width scratch buffer):
   AssertEqual 1, &winfixwidth
   AssertEqual 0, &swapfile
 
-Execute (the panel opens at the configured width on the left):
-  let g:claude_panel_width = 30
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+Execute (the panel opens at its width on the left):
+  call kimi#panel#_set_width(30)
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   AssertEqual 30, winwidth(0)
   AssertEqual 1,  winnr(), 'a left-anchored panel is the first window'
-  let g:claude_panel_width = 35
+  call kimi#panel#_set_width(0)
 
 Execute (toggle opens then hides the panel):
-  call claude#panel#toggle()
-  Assert claude#panel#is_open()
-  call claude#panel#toggle()
-  Assert !claude#panel#is_open()
+  call kimi#panel#toggle()
+  Assert kimi#panel#is_open()
+  call kimi#panel#toggle()
+  Assert !kimi#panel#is_open()
 
 Execute (opening an already-open panel focuses it instead of duplicating it):
-  call claude#panel#open()
+  call kimi#panel#open()
   let before = winnr('$')
-  call claude#panel#open()
+  call kimi#panel#open()
   AssertEqual before, winnr('$'), 'the panel must not be opened twice'
-  AssertEqual bufwinid(claude#panel#bufnr()), win_getid()
+  AssertEqual bufwinid(kimi#panel#bufnr()), win_getid()
 
 " ── hiding never ends a session ──────────────────────────────────────────────
 
 Execute (closing the panel leaves every job running):
-  let id = claude#session#new('survivor')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
-  call claude#panel#close()
-  Assert !claude#panel#is_open(), 'the panel should be hidden'
+  let id = kimi#session#new('survivor')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
+  call kimi#panel#close()
+  Assert !kimi#panel#is_open(), 'the panel should be hidden'
   AssertEqual 'run', job_status(term_getjob(bufnr)),
         \ 'hiding the panel must not stop the session'
   Assert bufexists(bufnr), 'the terminal buffer should survive'
-  AssertEqual 'active', claude#session#status(id)
+  AssertEqual 'active', kimi#session#status(id)
 
 Execute (q in the panel hides it without touching the session):
-  let id = claude#session#new('survivor')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  let id = kimi#session#new('survivor')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   normal q
-  Assert !claude#panel#is_open()
+  Assert !kimi#panel#is_open()
   AssertEqual 'run', job_status(term_getjob(bufnr))
 
 " ── open verbs ───────────────────────────────────────────────────────────────
 
 Execute (opening a hidden session brings it back into a window):
-  let id = claude#session#new('hidden')
-  let bufnr = claude#session#get(id).bufnr
+  let id = kimi#session#new('hidden')
+  let bufnr = kimi#session#get(id).bufnr
   call win_execute(bufwinid(bufnr), 'hide')
   AssertEqual -1, bufwinid(bufnr), 'precondition: the session is hidden'
-  call claude#panel#open()
-  call claude#panel#open_session(id, 'here')
+  call kimi#panel#open()
+  call kimi#panel#open_session(id, 'here')
   Assert bufwinid(bufnr) != -1, 'the session should be visible again'
 
 Execute (a visible session is jumped to, not opened a second time):
-  let id = claude#session#new('reused')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
+  let id = kimi#session#new('reused')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
   let before = winnr('$')
-  call claude#panel#open_session(id, 'here')
+  call kimi#panel#open_session(id, 'here')
   AssertEqual before, winnr('$'), 'no duplicate window should be created'
   AssertEqual bufwinid(bufnr), win_getid(), 'the cursor should be in it'
 
 Execute (split and vsplit each add one window):
-  let id = claude#session#new('splitter')
-  let bufnr = claude#session#get(id).bufnr
+  let id = kimi#session#new('splitter')
+  let bufnr = kimi#session#get(id).bufnr
   call win_execute(bufwinid(bufnr), 'hide')
-  call claude#panel#open()
+  call kimi#panel#open()
   let before = winnr('$')
-  call claude#panel#open_session(id, 'split')
+  call kimi#panel#open_session(id, 'split')
   AssertEqual before + 1, winnr('$')
   AssertEqual bufnr, bufnr('%')
 
 Execute (t opens the session in a new tab):
-  let id = claude#session#new('tabbed')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
+  let id = kimi#session#new('tabbed')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
   let tabs = tabpagenr('$')
-  call claude#panel#open_session(id, 'tab')
+  call kimi#panel#open_session(id, 'tab')
   AssertEqual tabs + 1, tabpagenr('$')
   AssertEqual bufnr, bufnr('%')
   tabclose
 
 Execute (the panel window is never replaced by a session):
-  let id = claude#session#new('elsewhere')
-  let bufnr = claude#session#get(id).bufnr
+  let id = kimi#session#new('elsewhere')
+  let bufnr = kimi#session#get(id).bufnr
   call win_execute(bufwinid(bufnr), 'hide')
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
-  call claude#panel#open_session(id, 'here')
-  Assert claude#panel#is_open(), 'the panel must still be open'
-  AssertEqual claude#panel#bufnr(),
-        \ winbufnr(win_id2win(bufwinid(claude#panel#bufnr()))),
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
+  call kimi#panel#open_session(id, 'here')
+  Assert kimi#panel#is_open(), 'the panel must still be open'
+  AssertEqual kimi#panel#bufnr(),
+        \ winbufnr(win_id2win(bufwinid(kimi#panel#bufnr()))),
         \ 'the panel window must still show the panel'
 
 " ── cursor mapping ───────────────────────────────────────────────────────────
 
 Execute (<CR> on a group node folds it rather than opening anything):
-  call claude#session#_inject({'name': 'child', 'status': 'active',
+  call kimi#session#_inject({'name': 'child', 'status': 'active',
         \ 'project': '/w/beta', 'worktree': '/w/beta', 'branch': 'main'})
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(3, 1)
   execute "normal \<CR>"
-  Assert join(claude#panel#_lines(), "\n") !~# 'child',
+  Assert join(kimi#panel#_lines(), "\n") !~# 'child',
         \ '<CR> on a project node should collapse it'
 
 Execute (keys on a blank line do nothing):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(2, 1)
   execute "normal \<CR>"
   normal i
   normal s
-  Assert claude#panel#is_open(), 'the panel should be unharmed'
+  Assert kimi#panel#is_open(), 'the panel should be unharmed'
 
 " ── mouse ────────────────────────────────────────────────────────────────────
 
 Execute (a double-click activates the row, as it does in NERDTree):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   let m = maparg('<2-LeftMouse>', 'n', 0, 1)
   Assert !empty(m), 'double-click must be mapped: Vim does not derive it from <CR>'
   AssertEqual 1, m.buffer, 'the mapping must be local to the panel'
@@ -168,44 +166,44 @@ Execute (a double-click activates the row, as it does in NERDTree):
 
 Execute (I lists the sessions nobody named, and hides them again):
   " Finished sessions: a live one is never hidden, whatever it is called.
-  call claude#session#_inject({'id': 'named', 'name': 'panel design',
+  call kimi#session#_inject({'id': 'named', 'name': 'panel design',
         \ 'status': 'closed', 'project': '/w/beta', 'worktree': '/w/beta',
         \ 'branch': 'main'})
-  call claude#session#_inject({'id': 'anon', 'name': '', 'named': 0,
+  call kimi#session#_inject({'id': 'anon', 'name': '', 'named': 0,
         \ 'status': 'closed', 'project': '/w/beta', 'worktree': '/w/beta',
         \ 'branch': 'main'})
-  call claude#panel#open()
+  call kimi#panel#open()
   " The place view, where nothing is folded away to start with.
-  call claude#panel#_grouping('place')
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#_grouping('place')
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
 
-  let lines = join(claude#panel#_lines(), "\n")
+  let lines = join(kimi#panel#_lines(), "\n")
   Assert lines =~# 'panel design', 'the named session should be listed'
   Assert lines !~# 'unnamed',      'the unnamed one should not be'
 
   normal I
-  let lines = join(claude#panel#_lines(), "\n")
+  let lines = join(kimi#panel#_lines(), "\n")
   Assert lines =~# 'unnamed anon', 'I should reveal it, labelled by its id'
 
   normal I
-  Assert join(claude#panel#_lines(), "\n") !~# 'unnamed',
+  Assert join(kimi#panel#_lines(), "\n") !~# 'unnamed',
         \ 'I again should put it away'
 
 Execute (lowercase i still opens a session in a split):
-  let id = claude#session#new('splitter')
-  let bufnr = claude#session#get(id).bufnr
+  let id = kimi#session#new('splitter')
+  let bufnr = kimi#session#get(id).bufnr
   call win_execute(bufwinid(bufnr), 'hide')
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   let m = maparg('i', 'n', 0, 1)
   Assert m.rhs =~# "open('split')", 'i must still split, not toggle hidden'
-  Assert !claude#session#show_hidden(), 'i must not have toggled anything'
+  Assert !kimi#session#show_hidden(), 'i must not have toggled anything'
 
 Execute (the help block names the I key):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   normal ?
-  Assert join(claude#panel#_lines(), "\n") =~# 'I show hidden',
+  Assert join(kimi#panel#_lines(), "\n") =~# 'I show hidden',
         \ 'the inline help should offer the toggle'
   normal ?
 
@@ -215,56 +213,50 @@ Execute (the help block names the I key):
 " feedkeys(), so what n asks is tested on the path it calls.
 Execute (n asks for a name, and nothing else):
   call feedkeys("a quick one\<CR>", 't')
-  let id = claude#session#spawn({'ask_name': 1, 'placement': 'new'})
-  let rec = claude#session#get(id)
+  let id = kimi#session#spawn({'ask_name': 1, 'placement': 'new'})
+  let rec = kimi#session#get(id)
   AssertEqual 'a quick one', rec.name
   AssertEqual 1,  rec.named
   AssertEqual '', rec.workspace, 'no branch was asked for'
 
 Execute (a blank name is still an answer):
   call feedkeys("\<CR>", 't')
-  let id = claude#session#spawn({'ask_name': 1, 'placement': 'new'})
-  AssertEqual '', claude#session#get(id).name,
+  let id = kimi#session#spawn({'ask_name': 1, 'placement': 'new'})
+  AssertEqual '', kimi#session#get(id).name,
         \ 'it labels itself from its first message instead'
-  AssertEqual 0,  claude#session#get(id).named
+  AssertEqual 0,  kimi#session#get(id).named
 
 Execute (n is the key that runs it):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   Assert maparg('n', 'n', 0, 1).rhs =~# 'new()', 'n starts a session'
 
-Execute (with the prompts turned off n asks nothing at all):
-  let saved = g:claude_session_prompt_name
-  let g:claude_session_prompt_name = 0
-  try
-    " No feedkeys(): a prompt here would hang the suite, which is the point.
-    call claude#panel#open()
-    call win_gotoid(bufwinid(claude#panel#bufnr()))
-    normal n
-    AssertEqual 1, len(claude#session#live())
-    AssertEqual '', claude#session#live()[0].name
-  finally
-    let g:claude_session_prompt_name = saved
-  endtry
+Execute (n asks one question, and a blank answer names nothing):
+  call kimi#panel#_set_ask_name(0)
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
+  normal n
+  call kimi#panel#_set_ask_name(1)
+  AssertEqual 1, len(kimi#session#live())
+  AssertEqual '', kimi#session#live()[0].name
 
 Execute (N is the one that asks):
   " What it asks, and what each answer does, is test/session_workspace.vader.
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   let m = maparg('N', 'n', 0, 1)
   Assert m.rhs =~# 'new_asking', 'N should run the prompting path'
   Assert maparg('n', 'n', 0, 1).rhs =~# 'new()',
-        \ 'and n the one that asks nothing'
+        \ 'and n the one that asks only the name'
 
 Execute (the new session is the one the panel then opens):
-  let saved = g:claude_session_prompt_name
-  let g:claude_session_prompt_name = 0
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#_set_ask_name(0)
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   normal n
-  let g:claude_session_prompt_name = saved
-  let id = claude#session#live()[0].id
-  Assert claude#session#get(id).last_focus > 0,
+  call kimi#panel#_set_ask_name(1)
+  let id = kimi#session#live()[0].id
+  Assert kimi#session#get(id).last_focus > 0,
         \ 'a session you just started is the one you were last in'
-  Assert !claude#sidebar#is_sidebar(bufwinid(claude#session#get(id).bufnr)),
+  Assert !kimi#sidebar#is_sidebar(bufwinid(kimi#session#get(id).bufnr)),
         \ 'and it opens in the main area, not inside the sidebar column'

@@ -1,38 +1,33 @@
 " ── input completion ─────────────────────────────────────────────────────────
 
-" Completion data belongs to a session: each Claude process sees its own
-" project commands and agents. s:last_* holds the most recently collected set
-" and is used when no single session can be resolved — before the first
-" session exists, or while several are running.
+" Completion data belongs to a session: each CLI process sees its own
+" project skills. s:last_* holds the most recently collected set and is used
+" when no single session can be resolved — before the first session exists,
+" or while several are running.
 let s:last_commands = []
 let s:last_agents   = []
 
 function! s:get_session_commands() abort
-  let l:rec = claude#session#get(claude#session#current())
+  let l:rec = kimi#session#get(kimi#session#current())
   return !empty(l:rec) && !empty(l:rec.commands)
         \ ? l:rec.commands : s:last_commands
 endfunction
 
 function! s:get_session_agents() abort
-  let l:rec = claude#session#get(claude#session#current())
+  let l:rec = kimi#session#get(kimi#session#current())
   return !empty(l:rec) && !empty(l:rec.agents)
         \ ? l:rec.agents : s:last_agents
 endfunction
 
-" Collect the slash commands and agents a session can complete, when it
-" starts. Called from claude#session#new()/resume() with the session id — never
-" from the input panel. Without an id the data is only cached as the fallback
-" set. What there is to collect is the provider's business: Claude reads
-" .claude/commands and .claude/agents, another CLI reads whatever it keeps.
-function! claude#input#collect_data(...) abort
+" Collect the slash commands a session can complete, when it starts. Called
+" from kimi#session#new()/resume() with the session id — never from the input
+" panel. Without an id the data is only cached as the fallback set.
+function! kimi#input#collect_data(...) abort
   let l:id  = a:0 > 0 ? a:1 : ''
-  let l:rec = !empty(l:id) && claude#session#exists(l:id)
-        \ ? claude#session#get(l:id) : {}
-  let l:provider = empty(l:rec)
-        \ ? claude#provider#default() : claude#provider#of(l:rec)
+  let l:rec = !empty(l:id) && kimi#session#exists(l:id)
+        \ ? kimi#session#get(l:id) : {}
 
-  let l:data = claude#provider#call(l:provider, 'completion', [getcwd()],
-        \ {'commands': [], 'agents': []})
+  let l:data = kimi#cli#completion(getcwd())
 
   let s:last_commands = get(l:data, 'commands', [])
   let s:last_agents   = get(l:data, 'agents', [])
@@ -45,7 +40,7 @@ endfunction
 
 " Complete slash commands (/) and file references (@) in the input buffer.
 " Registered as completefunc; auto-triggered by / and @ insert mappings.
-function! claude#input#complete(findstart, base) abort
+function! kimi#input#complete(findstart, base) abort
   if a:findstart
     let l:line = getline('.')
     let l:i    = col('.') - 1
@@ -71,7 +66,7 @@ function! claude#input#complete(findstart, base) abort
     let l:prefix = a:base[1:]
     let l:slash  = strridx(l:prefix, '/')
 
-    " Agent completions (only when Claude is running; empty list otherwise).
+    " Agent completions (only when Kimi is running; empty list otherwise).
     let l:pat    = '^' . escape(l:prefix, '\^$.*[]~')
     let l:agents = filter(copy(s:get_session_agents()),
           \ {_, a -> a.abbr =~# l:pat})
@@ -102,7 +97,7 @@ function! claude#input#complete(findstart, base) abort
     endif
     let l:items = uniq(sort(l:items))
     " equal:1 bypasses Vim's word-prefix re-filter so basename-matched items
-    " (e.g. @doc/claude.txt for base @cla) are not dropped. The TextChangedI/P
+    " (e.g. @doc/kimi.txt for base @cla) are not dropped. The TextChangedI/P
     " autocmd in s:input_split re-triggers C-x C-u on each keystroke so the
     " function itself always runs with the current base and narrows correctly.
     let l:files = map(l:items, {_, f -> {
@@ -119,15 +114,15 @@ endfunction
 " ── input window ─────────────────────────────────────────────────────────────
 "
 " State is tab-local (t:) so each tab has an independent input buffer and
-" draft. t:claude_input_bufnr — bufnr of the open split, -1 when none.
-"        t:claude_input_saved  — draft lines preserved across toggle-off.
+" draft. t:kimi_input_bufnr — bufnr of the open split, -1 when none.
+"        t:kimi_input_saved  — draft lines preserved across toggle-off.
 
 " Open or toggle the input window. If it is already visible, close it and save
 " the current text as a draft; the draft is restored on the next open.
-function! claude#input#open() abort
-  let l:bufnr = get(t:, 'claude_input_bufnr', -1)
+function! kimi#input#open() abort
+  let l:bufnr = get(t:, 'kimi_input_bufnr', -1)
   if l:bufnr != -1 && bufexists(l:bufnr)
-    call claude#input#cancel()
+    call kimi#input#cancel()
   else
     call s:input_split()
   endif
@@ -142,7 +137,7 @@ function! s:refresh_at_complete() abort
     let l:ch = l:line[l:i - 1]
     if l:ch ==# '@'
       let l:base  = '@' . l:line[l:i : col('.') - 2]
-      let l:items = claude#input#complete(0, l:base)
+      let l:items = kimi#input#complete(0, l:base)
       call complete(l:i, l:items)
       return
     endif
@@ -152,16 +147,16 @@ function! s:refresh_at_complete() abort
 endfunction
 
 function! s:input_split() abort
-  let l:saved   = get(t:, 'claude_input_saved', [])
+  let l:saved   = get(t:, 'kimi_input_saved', [])
   let l:tmpfile = getcwd() . '/.' . fnamemodify(tempname(), ':t') . '.md'
   call writefile(l:saved, l:tmpfile)
 
   execute 'botright 10split ' . fnameescape(l:tmpfile)
   setlocal noswapfile nobuflisted bufhidden=wipe
-  setlocal statusline=Claude\ Input\ ——\ <C-s>\ send,\ <C-c>\ hide
+  setlocal statusline=Kimi\ Input\ ——\ <C-s>\ send,\ <C-c>\ hide
 
-  let t:claude_input_bufnr = bufnr('%')
-  let b:claude_tmpfile      = l:tmpfile
+  let t:kimi_input_bufnr = bufnr('%')
+  let b:kimi_tmpfile      = l:tmpfile
 
   " Always delete the temp file when the buffer is wiped, regardless of
   " whether it's closed by submit, cancel, or bufhidden=wipe.
@@ -171,8 +166,8 @@ function! s:input_split() abort
     execute len(l:saved)
   endif
 
-  nnoremap <buffer> <silent> <C-s> :call claude#input#submit()<CR>
-  inoremap <buffer> <silent> <C-s> <Esc>:call claude#input#submit()<CR>
+  nnoremap <buffer> <silent> <C-s> :call kimi#input#submit()<CR>
+  inoremap <buffer> <silent> <C-s> <Esc>:call kimi#input#submit()<CR>
   " Hiding is on CTRL-C, not <Esc>: the window opens in insert mode, so an
   " <Esc> mapping here would make the first press leave insert and the second
   " silently close the window.
@@ -181,9 +176,9 @@ function! s:input_split() abort
   " would strand 'completeopt' on the value InsertEnter set below. Going out
   " through <Esc> keeps that pair balanced; the second press then hides.
   inoremap <buffer> <C-c> <Esc>
-  nnoremap <buffer> <silent> q     :call claude#input#cancel()<CR>
+  nnoremap <buffer> <silent> q     :call kimi#input#cancel()<CR>
 
-  setlocal completefunc=claude#input#complete
+  setlocal completefunc=kimi#input#complete
   inoremap <buffer> <silent> /      /<C-x><C-u>
   inoremap <buffer> <silent> @      @<C-x><C-u>
   inoremap <buffer> <expr>   <Esc>  pumvisible() ? '<C-e>' : '<Esc>'
@@ -204,36 +199,36 @@ endfunction
 
 " Toggle-off: save split content as draft then close.
 function! s:input_split_save_and_close() abort
-  let l:bufnr = get(t:, 'claude_input_bufnr', -1)
+  let l:bufnr = get(t:, 'kimi_input_bufnr', -1)
   let l:lines = getbufline(l:bufnr, 1, '$')
   while !empty(l:lines) && l:lines[-1] =~# '^\s*$'
     call remove(l:lines, -1)
   endwhile
-  let t:claude_input_saved = l:lines
-  let t:claude_input_bufnr = -1
+  let t:kimi_input_saved = l:lines
+  let t:kimi_input_bufnr = -1
   execute 'bwipeout! ' . l:bufnr
   " BufWipeout autocmd handles temp file deletion.
 endfunction
 
-" Send: collect content, close, send to Claude, clear draft.
-function! claude#input#submit() abort
+" Send: collect content, close, send to Kimi, clear draft.
+function! kimi#input#submit() abort
   let l:lines = getline(1, '$')
   while !empty(l:lines) && l:lines[-1] =~# '^\s*$'
     call remove(l:lines, -1)
   endwhile
-  let t:claude_input_bufnr = -1
-  let t:claude_input_saved = []
+  let t:kimi_input_bufnr = -1
+  let t:kimi_input_saved = []
   bwipeout!
   " BufWipeout autocmd handles temp file deletion.
   if !empty(l:lines)
-    call claude#_send_input(join(l:lines, "\n"))
+    call kimi#_send_input(join(l:lines, "\n"))
   endif
 endfunction
 
 " Cancel: discard the draft and close.
-function! claude#input#cancel() abort
-  let t:claude_input_bufnr = -1
-  let t:claude_input_saved = []
+function! kimi#input#cancel() abort
+  let t:kimi_input_bufnr = -1
+  let t:kimi_input_saved = []
   bwipeout!
   " BufWipeout autocmd handles temp file deletion.
 endfunction

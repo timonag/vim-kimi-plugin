@@ -1,6 +1,3 @@
-# Session names are written here at runtime (g:claude_session_store).
+# Session names, per-branch diff bases and workspaces are written here at
+# runtime.
 data/
-
-# Local Claude Code configuration, including the opt-in session-panel
-# status hook (see examples/hooks/claude-vim-status.mjs).
-.claude/settings.local.json

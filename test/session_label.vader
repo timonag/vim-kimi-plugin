@@ -1,182 +1,124 @@
 " Tests for what a row is called.
 "
-" Only 11 of the 130 sessions on this machine carry a name a human typed, so a
-" name is the exception. What was asked of a session first is the label when
-" there is no name, and it is read from the transcript that placed the record.
+" A name typed in the panel is the exception, not the identity. Without one,
+" the CLI's own title labels a session — set with /title or generated — and
+" the last prompt is the last resort.
 
 Before:
-  call claude#session#_reset()
-  call claude#store#_reset()
-  call claude#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#store#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
   let g:_saved_cwd   = getcwd()
-  let g:_saved_store     = get(g:, 'claude_session_store', '')
-  let g:_saved_limit     = get(g:, 'claude_panel_closed_limit', 10)
-  let g:_saved_providers = get(g:, 'claude_providers', {})
-  let g:claude_panel_closed_limit = 10
   let g:_root = resolve(tempname())
   let g:_dir  = g:_root . '/work'
   call mkdir(g:_dir, 'p')
-  let g:claude_session_store = g:_root . '/sessions.json'
+  call kimi#store#_set_root(g:_root)
+  let g:_home = g:_root . '/kimi-home'
+  call mkdir(g:_home, 'p')
+  let $KIMI_CODE_HOME = g:_home
   execute 'cd ' . fnameescape(g:_dir)
-  let g:_transcripts = claude#session#project_dir(g:_dir)
-  call mkdir(g:_transcripts, 'p')
 
 After:
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  " Named after a path under g:_root, so nothing of the user's own is caught.
-  if g:_transcripts =~# '/\.claude/projects/'
-        \ && g:_transcripts =~# escape(fnamemodify(g:_root, ':t'), '\')
-    call delete(g:_transcripts, 'rf')
-  endif
-  call claude#panel#_reset()
-  call claude#session#_reset()
-  call claude#store#_reset()
-  let g:claude_session_store      = g:_saved_store
-  let g:claude_panel_closed_limit = g:_saved_limit
-  let g:claude_providers          = g:_saved_providers
+  call kimi#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#store#_reset()
+  call kimi#cli#_reset()
+  let $KIMI_CODE_HOME = ''
   call delete(g:_root, 'rf')
 
-" Write a transcript whose first user message is {text}.
+" Register a CLI session {id} for g:_dir with the given state.json fields.
 Execute (helper):
-  function! Transcript(id, text) abort
-    call writefile([json_encode({'type': 'user', 'cwd': g:_dir,
-          \ 'gitBranch': 'main', 'message': {'content': a:text}})],
-          \ g:_transcripts . '/' . a:id . '.jsonl')
+  function! CliSession(id, state) abort
+    let l:dir = g:_home . '/sessions/wd_x/' . a:id
+    call mkdir(l:dir . '/agents/main', 'p')
+    call writefile([json_encode({'sessionId': a:id,
+          \ 'sessionDir': l:dir, 'workDir': g:_dir})],
+          \ g:_home . '/session_index.jsonl')
+    call writefile([json_encode(a:state)], l:dir . '/state.json')
+    call kimi#cli#_reset()
   endfunction
 
 " ── the rule ─────────────────────────────────────────────────────────────────
 
 Execute (a name someone typed wins):
-  call claude#session#_inject({'id': 'a', 'name': 'panel rework',
+  call kimi#session#_inject({'id': 'a', 'name': 'panel rework',
         \ 'snippet': 'rework the whole panel'})
-  AssertEqual 'panel rework', claude#session#label(claude#session#get('a'))
+  AssertEqual 'panel rework', kimi#session#label(kimi#session#get('a'))
 
-Execute (with no name, the first thing asked of it):
-  call claude#session#_inject({'id': 'a', 'name': '', 'named': 0,
+Execute (with no name, the CLI title):
+  call kimi#session#_inject({'id': 'a', 'name': '', 'named': 0,
         \ 'snippet': 'pick a diff base'})
-  AssertEqual 'pick a diff base', claude#session#label(claude#session#get('a'))
+  AssertEqual 'pick a diff base', kimi#session#label(kimi#session#get('a'))
 
 Execute (with neither, the id, as it always was):
-  call claude#session#_inject({'id': '9c926d10-ad3d', 'name': '', 'named': 0})
+  call kimi#session#_inject({'id': '9c926d10-ad3d', 'name': '', 'named': 0})
   AssertEqual '(unnamed 9c926d10)',
-        \ claude#session#label(claude#session#get('9c926d10-ad3d'))
+        \ kimi#session#label(kimi#session#get('9c926d10-ad3d'))
 
-" ── where the snippet comes from ─────────────────────────────────────────────
+" ── where the label comes from ───────────────────────────────────────────────
 
-Execute (a scanned transcript labels an unnamed session by its first message):
-  call Transcript('11111111-2222-3333-4444-555555555555', 'rework the diff tree')
-  call claude#session#refresh()
-  call claude#session#toggle_hidden()
-  let recs = claude#session#list()
-  AssertEqual 1, len(recs)
-  AssertEqual '',                     recs[0].name, 'nobody typed a name'
-  AssertEqual 0,                      recs[0].named
-  AssertEqual 'rework the diff tree', recs[0].snippet
-  AssertEqual 'rework the diff tree', claude#session#label(recs[0])
+Execute (a scanned CLI session is labelled by its title):
+  call CliSession('ses-1',
+        \ {'id': 'ses-1', 'title': 'diff tree work', 'isCustomTitle': 1,
+        \  'lastPrompt': 'rework the diff tree',
+        \  'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})
+  call kimi#session#refresh()
+  let rec = kimi#session#get('ses-1')
+  AssertEqual 'diff tree work',       rec.name
+  AssertEqual 'rework the diff tree', rec.snippet
+  AssertEqual 'diff tree work',       kimi#session#label(rec)
 
-Execute (the timestamp fallback is gone: a label is not a name):
-  call Transcript('11111111-2222-3333-4444-555555555555', 'rework the diff tree')
-  call claude#session#refresh()
-  call claude#session#toggle_hidden()
-  Assert claude#session#list()[0].name !~# '\d\{4}-\d\{2}-\d\{2}',
-        \ 'a record marked unnamed must not carry a name'
+Execute (a CLI session with no title falls back to its last prompt):
+  call CliSession('ses-2',
+        \ {'id': 'ses-2', 'title': '', 'lastPrompt': 'pick a diff base',
+        \  'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})
+  call kimi#session#refresh()
+  call kimi#session#toggle_hidden()
+  let rec = kimi#session#get('ses-2')
+  AssertEqual '',                rec.name
+  AssertEqual 'pick a diff base', rec.snippet
+  AssertEqual 'pick a diff base', kimi#session#label(rec)
 
-Execute (a name from the store still wins over the transcript):
-  call Transcript('11111111-2222-3333-4444-555555555555', 'rework the diff tree')
-  call claude#store#save({'version': 1, 'sessions':
-        \ {'11111111-2222-3333-4444-555555555555':
-        \   {'name': 'diff tree work', 'named': 1, 'cwd': g:_dir,
-        \    'created': 1}}})
-  call claude#session#refresh()
-  let rec = claude#session#get('11111111-2222-3333-4444-555555555555')
-  AssertEqual 'diff tree work',       claude#session#label(rec)
+Execute (a name from the store still wins over the CLI title):
+  call CliSession('ses-3',
+        \ {'id': 'ses-3', 'title': 'what the CLI calls it', 'isCustomTitle': 1,
+        \  'lastPrompt': 'rework the diff tree',
+        \  'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})
+  call kimi#store#save({'version': 1, 'sessions':
+        \ {'ses-3': {'name': 'what I called it', 'named': 1, 'cwd': g:_dir,
+        \            'created': localtime()}}})
+  call kimi#session#refresh()
+  let rec = kimi#session#get('ses-3')
+  AssertEqual 'what I called it',     kimi#session#label(rec)
   AssertEqual 'rework the diff tree', rec.snippet,
         \ 'the snippet is still read, in case the name is ever cleared'
 
-Execute (a name nobody chose is dropped, and the first message speaks instead):
-  call Transcript('11111111-2222-3333-4444-555555555555', 'rework the diff tree')
-  call claude#store#save({'version': 1, 'sessions':
-        \ {'11111111-2222-3333-4444-555555555555':
-        \   {'name': 'claude 2026-09-07 15:41', 'named': 1, 'cwd': g:_dir,
-        \    'created': 1}}})
-  call claude#session#refresh()
-  let rec = claude#session#get('11111111-2222-3333-4444-555555555555')
-  AssertEqual 0,  rec.named
-  AssertEqual '', rec.name
-  AssertEqual 'rework the diff tree', claude#session#label(rec)
-
-Execute (a transcript with no user message yet has nothing to say):
-  call writefile([json_encode({'type': 'system', 'cwd': g:_dir})],
-        \ g:_transcripts . '/11111111-2222-3333-4444-555555555555.jsonl')
-  call claude#session#refresh()
-  call claude#session#toggle_hidden()
-  AssertEqual '(unnamed 11111111)', claude#session#label(claude#session#list()[0])
+Execute (a CLI session with nothing to say is labelled by its id):
+  call CliSession('ses-4',
+        \ {'id': 'ses-4', 'title': '', 'lastPrompt': '',
+        \  'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})
+  call kimi#session#refresh()
+  call kimi#session#toggle_hidden()
+  AssertEqual '(unnamed ses-4)', kimi#session#label(kimi#session#get('ses-4'))
 
 " ── in the panel ─────────────────────────────────────────────────────────────
 
-Execute (two sessions asked the same thing are told apart):
-  call claude#session#_inject({'id': 'a', 'name': '', 'named': 0,
+Execute (two sessions labelled the same are told apart):
+  call kimi#session#_inject({'id': 'a', 'name': '', 'named': 0,
         \ 'status': 'active', 'snippet': 'run the tests'})
-  call claude#session#_inject({'id': 'b', 'name': '', 'named': 0,
+  call kimi#session#_inject({'id': 'b', 'name': '', 'named': 0,
         \ 'status': 'active', 'snippet': 'run the tests'})
-  call claude#panel#open()
-  let rows = filter(claude#panel#_lines(), {_, l -> l =~# 'run the tests'})
+  call kimi#panel#open()
+  let rows = filter(kimi#panel#_lines(), {_, l -> l =~# 'run the tests'})
   AssertEqual 2, len(rows)
   Assert rows[1] =~# '(2)', 'the second gets a display-only suffix: ' . rows[1]
 
-Execute (an unnamed session is readable in the panel while it runs):
-  call claude#session#_inject({'id': 'a', 'name': '', 'named': 0,
+Execute (an unlabelled session is readable in the panel while it runs):
+  call kimi#session#_inject({'id': 'a', 'name': '', 'named': 0,
         \ 'status': 'waiting', 'snippet': 'pick a diff base'})
-  call claude#panel#open()
-  let text = join(claude#panel#_lines(), "\n")
+  call kimi#panel#open()
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'pick a diff base',
         \ 'the session that needs you must never read as a hex id: ' . text
-
-" ── a session another CLI ran ────────────────────────────────────────────────
-"
-" Pi writes the name it shows into the conversation itself, so a row has three
-" things it could be called by. A name typed here still wins; Pi's own name
-" beats the first message; the first message is the last resort, as always.
-
-Execute (helper):
-  function! PiSession(id, lines) abort
-    let g:claude_providers = {'pi': {'sessions_root': g:_root . '/pi'}}
-    let l:dir = claude#provider#pi#session_dir(g:_dir)
-    call mkdir(l:dir, 'p')
-    call writefile(
-          \ [json_encode({'type': 'session', 'version': 3, 'id': a:id,
-          \               'cwd': g:_dir})] + a:lines,
-          \ l:dir . '/2026-09-05T13-15-20-249Z_' . a:id . '.jsonl')
-  endfunction
-
-  function! PiUserLine(text) abort
-    return json_encode({'type': 'message', 'message': {'role': 'user',
-          \ 'content': [{'type': 'text', 'text': a:text}]}})
-  endfunction
-
-Execute (a Pi session nobody named is labelled with its first message):
-  call PiSession('pi-1', [PiUserLine('port the panel to pi')])
-  call claude#session#refresh()
-  AssertEqual 'port the panel to pi',
-        \ claude#session#label(claude#session#get('pi-1'))
-
-Execute (the name Pi carries beats the first message):
-  call PiSession('pi-2', [PiUserLine('port the panel to pi'),
-        \ json_encode({'type': 'session_info', 'name': 'panel port'})])
-  call claude#session#refresh()
-  AssertEqual 'panel port', claude#session#label(claude#session#get('pi-2'))
-
-Execute (a name typed here still wins over the one Pi carries):
-  call claude#store#put('pi-3', {'name': 'what I called it', 'named': 1,
-        \ 'provider': 'pi', 'cwd': g:_dir, 'project': g:_dir,
-        \ 'worktree': g:_dir, 'branch': 'main', 'created': localtime()})
-  call PiSession('pi-3', [PiUserLine('first message'),
-        \ json_encode({'type': 'session_info', 'name': 'what Pi calls it'})])
-  call claude#session#refresh()
-  AssertEqual 'what I called it',
-        \ claude#session#label(claude#session#get('pi-3'))
-
-Execute (the record remembers which CLI it belongs to):
-  call PiSession('pi-4', [PiUserLine('hello')])
-  call claude#session#refresh()
-  AssertEqual 'pi', claude#provider#of(claude#session#get('pi-4'))

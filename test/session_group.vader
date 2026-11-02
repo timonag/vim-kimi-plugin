@@ -1,8 +1,8 @@
-" Tests for claude#session#group_of() — the Project > Worktree > Branch
-" derivation. Uses a real fixture repository; no terminal, no Claude process.
+" Tests for kimi#session#group_of() — the Project > Worktree > Branch
+" derivation. Uses a real fixture repository; no terminal, no Kimi process.
 
 Before:
-  call claude#session#_reset()
+  call kimi#session#_reset()
   let g:_repo = tempname()
   call mkdir(g:_repo, 'p')
   " -q keeps git quiet; the default branch name is pinned so the assertions
@@ -15,20 +15,20 @@ Before:
   call system('git -C ' . shellescape(g:_repo) . ' commit -qm first')
 
 After:
-  call claude#session#_reset()
+  call kimi#session#_reset()
   call delete(g:_repo, 'rf')
 
 " ── plain repository ─────────────────────────────────────────────────────────
 
 Execute (a repo root groups by its own path and branch):
-  let g = claude#session#group_of(resolve(g:_repo))
+  let g = kimi#session#group_of(resolve(g:_repo))
   AssertEqual resolve(g:_repo), g.project
   AssertEqual resolve(g:_repo), g.worktree
   AssertEqual 'main',           g.branch
 
 Execute (a subdirectory resolves to the repository root, not itself):
   call mkdir(g:_repo . '/sub/deep', 'p')
-  let g = claude#session#group_of(resolve(g:_repo) . '/sub/deep')
+  let g = kimi#session#group_of(resolve(g:_repo) . '/sub/deep')
   AssertEqual resolve(g:_repo), g.project
   AssertEqual resolve(g:_repo), g.worktree
 
@@ -38,7 +38,7 @@ Execute (a linked worktree keeps the main repo as its project):
   let wt = g:_repo . '-wt'
   call system('git -C ' . shellescape(g:_repo)
         \ . ' worktree add -q -b feature ' . shellescape(wt))
-  let g = claude#session#group_of(resolve(wt))
+  let g = kimi#session#group_of(resolve(wt))
   AssertEqual resolve(g:_repo), g.project,
         \ 'a worktree must group under the main repository'
   AssertEqual resolve(wt),      g.worktree,
@@ -50,7 +50,7 @@ Execute (a linked worktree keeps the main repo as its project):
 
 Execute (detached HEAD is labelled with the short sha):
   call system('git -C ' . shellescape(g:_repo) . ' checkout -q --detach HEAD')
-  let g = claude#session#group_of(resolve(g:_repo))
+  let g = kimi#session#group_of(resolve(g:_repo))
   Assert g.branch =~# '^(detached: \x\{7})$',
         \ 'expected a detached label, got ' . g.branch
 
@@ -59,14 +59,14 @@ Execute (detached HEAD is labelled with the short sha):
 Execute (a directory outside any repo has no project or branch):
   let plain = tempname()
   call mkdir(plain, 'p')
-  let g = claude#session#group_of(plain)
+  let g = kimi#session#group_of(plain)
   AssertEqual '(no project)', g.project
   AssertEqual plain,          g.worktree
   AssertEqual '(no branch)',  g.branch
   call delete(plain, 'rf')
 
 Execute (a path that does not exist falls back instead of erroring):
-  let g = claude#session#group_of('/no/such/directory/anywhere')
+  let g = kimi#session#group_of('/no/such/directory/anywhere')
   AssertEqual '(no project)', g.project
   AssertEqual '(no branch)',  g.branch
 
@@ -80,32 +80,32 @@ Execute (regroup fixes a session stuck with a stale group):
   let cwd = resolve(g:_repo)
   " Prime the cache while still on `main` — standing in for an answer
   " memoised too early (e.g. mid `git worktree add`, before it settled).
-  call claude#session#group_of(cwd)
+  call kimi#session#group_of(cwd)
   call system('git -C ' . shellescape(g:_repo) . ' checkout -q -b feature-late')
-  call claude#session#_inject({'id': 'stale', 'cwd': cwd,
+  call kimi#session#_inject({'id': 'stale', 'cwd': cwd,
         \ 'project': cwd, 'worktree': cwd, 'branch': 'main'})
 
   " Without a reset, group_of(cwd) would still answer 'main' from cache.
-  AssertEqual 'main', claude#session#group_of(cwd).branch
+  AssertEqual 'main', kimi#session#group_of(cwd).branch
 
-  call claude#session#regroup()
+  call kimi#session#regroup()
 
-  let rec = claude#session#get('stale')
+  let rec = kimi#session#get('stale')
   AssertEqual 'feature-late', rec.branch, 'the stale branch is corrected'
 
 Execute (regroup leaves an already-correct session untouched):
   let cwd = resolve(g:_repo)
-  call claude#session#_inject({'id': 'fine', 'cwd': cwd,
+  call kimi#session#_inject({'id': 'fine', 'cwd': cwd,
         \ 'project': cwd, 'worktree': cwd, 'branch': 'main'})
-  call claude#session#regroup()
-  AssertEqual 'main', claude#session#get('fine').branch
+  call kimi#session#regroup()
+  AssertEqual 'main', kimi#session#get('fine').branch
 
 " ── memoisation ──────────────────────────────────────────────────────────────
 
 Execute (repeated lookups return equal results and are cached):
-  let first  = claude#session#group_of(resolve(g:_repo))
+  let first  = kimi#session#group_of(resolve(g:_repo))
   " Moving the repo away would break a fresh lookup; the cached answer stands.
   call rename(g:_repo, g:_repo . '-moved')
-  let second = claude#session#group_of(resolve(g:_repo))
+  let second = kimi#session#group_of(resolve(g:_repo))
   AssertEqual first, second, 'group_of must be memoised per directory'
   call rename(g:_repo . '-moved', g:_repo)

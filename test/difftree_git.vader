@@ -10,7 +10,7 @@
 "   both.txt     committed AND dirty           -> both
 
 Before:
-  call claude#difftree#_reset()
+  call kimi#difftree#_reset()
   let g:_cwd  = getcwd()
   let g:_repo = tempname()
   call mkdir(g:_repo . '/dir1', 'p')
@@ -33,28 +33,29 @@ Before:
   call writefile(['two changed'],  g:_repo . '/dir1/b.txt')
   call writefile(['both again'],   g:_repo . '/both.txt')
   call writefile(['untracked'],    g:_repo . '/u.txt')
-  " Keep the per-branch base store out of the plugin's data directory.
-  let g:_saved_dtstore = get(g:, 'claude_difftree_store', '')
-  let g:claude_difftree_store = g:_repo . '.bases.json'
+  " Keep the stores out of the plugin's data directory.
+  let g:_stores = g:_repo . '-stores'
+  call mkdir(g:_stores, 'p')
+  call kimi#store#_set_root(g:_stores)
   execute 'cd ' . fnameescape(g:_repo)
 
   " The tree is one row per branch, so this is just the branch names.
   function! Branches() abort
-    return map(claude#difftree#tree(), {_, b -> b.branch})
+    return map(kimi#difftree#tree(), {_, b -> b.branch})
   endfunction
 
   function! Labels() abort
-    return map(claude#difftree#tree(), {_, b -> b.label})
+    return map(kimi#difftree#tree(), {_, b -> b.label})
   endfunction
 
   function! Node(branch) abort
-    let l:m = filter(claude#difftree#tree(), {_, b -> b.branch ==# a:branch})
+    let l:m = filter(kimi#difftree#tree(), {_, b -> b.branch ==# a:branch})
     return empty(l:m) ? {} : l:m[0]
   endfunction
 
   function! ByPath() abort
     let l:out = {}
-    for l:r in claude#difftree#files()
+    for l:r in kimi#difftree#files()
       let l:out[l:r.path] = l:r
     endfor
     return l:out
@@ -62,17 +63,17 @@ Before:
 
 After:
   execute 'cd ' . fnameescape(g:_cwd)
-  let g:claude_difftree_store = g:_saved_dtstore
-  call delete(g:_repo . '.bases.json')
-  call claude#difftree#_reset()
-  call claude#session#_reset()
+  call kimi#store#_reset()
+  call delete(g:_stores, 'rf')
+  call kimi#difftree#_reset()
+  call kimi#session#_reset()
   call delete(g:_repo, 'rf')
 
 " ── discovery ────────────────────────────────────────────────────────────────
 
 Execute (the repository and its base branch are found):
-  Assert claude#difftree#is_repo()
-  AssertEqual 'main', claude#difftree#base()
+  Assert kimi#difftree#is_repo()
+  AssertEqual 'main', kimi#difftree#base()
 
 Execute (every changed file is listed, and nothing else):
   AssertEqual ['a.txt', 'both.txt', 'dir1/b.txt', 'dir1/c.txt', 'u.txt'],
@@ -84,28 +85,28 @@ Execute (a file committed on the branch is committed):
   let r = ByPath()['a.txt']
   AssertEqual 'M', r.committed
   AssertEqual '',  r.dirty
-  AssertEqual 'committed', claude#difftree#status(r)
+  AssertEqual 'committed', kimi#difftree#status(r)
 
 Execute (an added file carries the A letter):
   AssertEqual 'A', ByPath()['dir1/c.txt'].committed
-  AssertEqual 'committed', claude#difftree#status(ByPath()['dir1/c.txt'])
+  AssertEqual 'committed', kimi#difftree#status(ByPath()['dir1/c.txt'])
 
 Execute (a file dirty in the working tree is uncommitted):
   let r = ByPath()['dir1/b.txt']
   AssertEqual '',  r.committed
   AssertEqual 'M', r.dirty
-  AssertEqual 'uncommitted', claude#difftree#status(r)
+  AssertEqual 'uncommitted', kimi#difftree#status(r)
 
 Execute (an untracked file is uncommitted, marked ?):
   let r = ByPath()['u.txt']
   AssertEqual '?', r.dirty
-  AssertEqual 'uncommitted', claude#difftree#status(r)
+  AssertEqual 'uncommitted', kimi#difftree#status(r)
 
 Execute (a file both committed and dirty is reported as both):
   let r = ByPath()['both.txt']
   Assert !empty(r.committed), 'should be in the committed set'
   Assert !empty(r.dirty),     'should also be dirty'
-  AssertEqual 'both', claude#difftree#status(r)
+  AssertEqual 'both', kimi#difftree#status(r)
 
 Execute (each record carries its worktree and branch):
   let r = ByPath()['a.txt']
@@ -115,10 +116,10 @@ Execute (each record carries its worktree and branch):
 " ── configuration ────────────────────────────────────────────────────────────
 
 Execute (untracked files can be excluded):
-  let g:claude_difftree_show_untracked = 0
-  call claude#difftree#refresh()
+  call kimi#difftree#_set_show_untracked(0)
+  call kimi#difftree#refresh()
   let paths = sort(keys(ByPath()))
-  let g:claude_difftree_show_untracked = 1
+  call kimi#difftree#_set_show_untracked(1)
   AssertEqual -1, index(paths, 'u.txt')
   Assert index(paths, 'a.txt') >= 0, 'other files must still be listed'
 
@@ -129,7 +130,7 @@ Execute (a second worktree contributes its own branch node):
   call system(g:_g . 'worktree add -q -b other ' . shellescape(wt))
   call writefile(['other work'], wt . '/a.txt')
   call system('git -C ' . shellescape(wt) . ' commit -qam other')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   let branches = Branches()
   let labels   = Labels()
   call system(g:_g . 'worktree remove --force ' . shellescape(wt))
@@ -143,7 +144,7 @@ Execute (a worktree sitting on the base branch is skipped):
   " The fixture's main worktree is on `feature`; put a second one on `main`.
   let wt = g:_repo . '-base'
   call system(g:_g . 'worktree add -q ' . shellescape(wt) . ' main')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   let branches = Branches()
   call system(g:_g . 'worktree remove --force ' . shellescape(wt))
   AssertEqual -1, index(branches, 'main'),
@@ -155,10 +156,10 @@ Execute (a non-git directory yields nothing and does not error):
   let plain = tempname()
   call mkdir(plain, 'p')
   execute 'cd ' . fnameescape(plain)
-  call claude#difftree#_reset()
-  AssertEqual 0,  claude#difftree#is_repo()
-  AssertEqual [], claude#difftree#files()
-  AssertEqual [], claude#difftree#tree()
+  call kimi#difftree#_reset()
+  AssertEqual 0,  kimi#difftree#is_repo()
+  AssertEqual [], kimi#difftree#files()
+  AssertEqual [], kimi#difftree#tree()
   execute 'cd ' . fnameescape(g:_repo)
   call delete(plain, 'rf')
 
@@ -167,40 +168,40 @@ Execute (a repository with no changes vs base lists nothing):
   " plain checkout would be refused and the fixture would stay on `feature`.
   call system(g:_g . 'checkout -q -f main')
   call system(g:_g . 'clean -qfd')
-  call claude#difftree#_reset()
-  AssertEqual 'main', claude#difftree#base()
-  AssertEqual [], claude#difftree#tree()
+  call kimi#difftree#_reset()
+  AssertEqual 'main', kimi#difftree#base()
+  AssertEqual [], kimi#difftree#tree()
 
-" ── branches taken from the Claude session registry ──────────────────────────
+" ── branches taken from the Kimi session registry ──────────────────────────
 "
-" The panel answers "what has Claude changed?", so a branch a session ran on is
+" The panel answers "what has Kimi changed?", so a branch a session ran on is
 " listed even when it is no longer checked out anywhere. Session records are
 " fabricated rather than spawned.
 
 Execute (a session's branch with no worktree is listed, committed only):
   " `other` exists but is checked out nowhere.
   call system(g:_g . 'branch other feature')
-  call claude#session#_inject({'name': 'past work', 'status': 'closed',
+  call kimi#session#_inject({'name': 'past work', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'other'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   Assert index(Branches(), 'other') >= 0,
         \ 'expected the session branch, got ' . string(Branches())
   " No working tree, so nothing can be dirty and the second slot stays blank.
-  let dirty = filter(copy(claude#difftree#files()),
+  let dirty = filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'other' && !empty(f.dirty)})
   AssertEqual [], dirty,
         \ 'a branch with no worktree cannot have uncommitted files'
-  let committed = filter(copy(claude#difftree#files()),
+  let committed = filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'other' && !empty(f.committed)})
   Assert !empty(committed), 'it should still list its committed changes'
 
 Execute (a worktree-less branch is a peer row, marked so the reason shows):
   call system(g:_g . 'branch other feature')
-  call claude#session#_inject({'name': 'past work', 'status': 'closed',
+  call kimi#session#_inject({'name': 'past work', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'other'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual ['feature', 'other'], sort(Branches())
   AssertEqual 0, Node('other').has_worktree
   AssertEqual 'other (no worktree)', Node('other').label
@@ -210,56 +211,56 @@ Execute (a worktree-less branch is a peer row, marked so the reason shows):
 
 Execute (there is no worktree level in the tree at all):
   call system(g:_g . 'branch other feature')
-  call claude#session#_inject({'name': 'past work', 'status': 'closed',
+  call kimi#session#_inject({'name': 'past work', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'other'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   " A worktree holds exactly one branch, so it is named in the label rather
   " than given a node of its own.
-  for node in claude#difftree#tree()
+  for node in kimi#difftree#tree()
     Assert !has_key(node, 'branches'), 'branches must be the top level now'
   endfor
   AssertEqual [], filter(Labels(), {_, l -> l ==# '(no worktree)'})
 
 Execute (a session on the checked-out branch does not duplicate it):
-  call claude#session#_inject({'name': 'current work', 'status': 'closed',
+  call kimi#session#_inject({'name': 'current work', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'feature'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual 1, count(Branches(), 'feature'),
         \ 'the branch must appear once, got ' . string(Branches())
   " And it keeps its uncommitted files, because it does have a worktree.
-  let dirty = filter(copy(claude#difftree#files()),
+  let dirty = filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'feature' && !empty(f.dirty)})
   Assert !empty(dirty), 'the checked-out branch still shows dirty files'
 
 Execute (a session on the base branch is skipped):
-  call claude#session#_inject({'name': 'on main', 'status': 'closed',
+  call kimi#session#_inject({'name': 'on main', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'main'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual -1, index(Branches(), 'main'),
         \ 'the base diffs against itself and is never listed'
 
 Execute (a session naming a deleted branch is dropped without erroring):
-  call claude#session#_inject({'name': 'gone', 'status': 'closed',
+  call kimi#session#_inject({'name': 'gone', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'deleted-long-ago'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual -1, index(Branches(), 'deleted-long-ago')
   Assert index(Branches(), 'feature') >= 0, 'the rest of the tree survives'
 
 Execute (a placeholder branch from a detached session is ignored):
-  call claude#session#_inject({'name': 'detached', 'status': 'closed',
+  call kimi#session#_inject({'name': 'detached', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': '(detached: abc1234)'})
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   Assert empty(filter(copy(Branches()), {_, b -> b[0] ==# '('})),
         \ 'placeholders are not diffable: ' . string(Branches())
 
 Execute (an empty session registry leaves the worktree list unchanged):
-  call claude#session#_reset()
-  call claude#difftree#refresh()
+  call kimi#session#_reset()
+  call kimi#difftree#refresh()
   AssertEqual ['feature'], Branches()
 
 Execute (two branches sharing the repository root do not share a cache entry):
@@ -272,14 +273,14 @@ Execute (two branches sharing the repository root do not share a cache entry):
   call system(g:_g . 'commit -qm third')
   call system(g:_g . 'checkout -q feature')
   for b in ['other', 'third']
-    call claude#session#_inject({'name': b, 'status': 'closed',
+    call kimi#session#_inject({'name': b, 'status': 'closed',
           \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
           \ 'branch': b})
   endfor
-  call claude#difftree#refresh()
-  let third = map(filter(copy(claude#difftree#files()),
+  call kimi#difftree#refresh()
+  let third = map(filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'third'}), {_, f -> f.path})
-  let other = map(filter(copy(claude#difftree#files()),
+  let other = map(filter(copy(kimi#difftree#files()),
         \ {_, f -> f.branch ==# 'other'}), {_, f -> f.path})
   Assert index(third, 'third.txt') >= 0, 'third should have its own file'
   AssertEqual -1, index(other, 'third.txt'),

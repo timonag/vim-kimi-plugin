@@ -9,8 +9,8 @@
 " The fixture is checked out on `main`, which is also the base.
 
 Before:
-  call claude#difftree#_reset()
-  call claude#session#_reset()
+  call kimi#difftree#_reset()
+  call kimi#session#_reset()
   let g:_cwd  = getcwd()
   let g:_repo = tempname()
   call mkdir(g:_repo, 'p')
@@ -21,70 +21,68 @@ Before:
   call writefile(['one'], g:_repo . '/tracked.txt')
   call system(g:_g . 'add -A')
   call system(g:_g . 'commit -qm base')
-  let g:_saved_base = get(g:, 'claude_difftree_base', '')
-  let g:claude_difftree_base = ''
-  " Keep the per-branch base store out of the plugin's data directory.
-  let g:_saved_dtstore = get(g:, 'claude_difftree_store', '')
-  let g:claude_difftree_store = g:_repo . '.bases.json'
+  " Keep the stores out of the plugin's data directory.
+  let g:_stores = g:_repo . '-stores'
+  call mkdir(g:_stores, 'p')
+  call kimi#store#_set_root(g:_stores)
   execute 'cd ' . fnameescape(g:_repo)
 
   function! Labels() abort
-    return map(claude#difftree#tree(), {_, w -> w.label})
+    return map(kimi#difftree#tree(), {_, w -> w.label})
   endfunction
 
   function! Paths() abort
-    return sort(map(copy(claude#difftree#files()), {_, f -> f.path}))
+    return sort(map(copy(kimi#difftree#files()), {_, f -> f.path}))
   endfunction
 
   function! Dirty() abort
-    return sort(map(filter(copy(claude#difftree#files()),
+    return sort(map(filter(copy(kimi#difftree#files()),
           \ {_, f -> !empty(f.dirty)}), {_, f -> f.path}))
   endfunction
 
 After:
   execute 'cd ' . fnameescape(g:_cwd)
-  let g:claude_difftree_base = g:_saved_base
-  let g:claude_difftree_store = g:_saved_dtstore
-  call delete(g:_repo . '.bases.json')
-  call claude#difftree#_reset()
-  call claude#session#_reset()
+  call kimi#store#_reset()
+  call delete(g:_stores, 'rf')
+  call kimi#difftree#_reset()
+  call kimi#session#_reset()
   call delete(g:_repo, 'rf')
   silent! only
 
 " ── the regression ───────────────────────────────────────────────────────────
 
 Execute (uncommitted changes show while sitting on the base branch):
-  AssertEqual 'main', claude#difftree#base()
+  AssertEqual 'main', kimi#difftree#base()
   call writefile(['changed'], g:_repo . '/tracked.txt')
   call writefile(['new'],     g:_repo . '/untracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual ['tracked.txt', 'untracked.txt'], Dirty(),
         \ 'the working tree must be visible even on the base branch'
 
 Execute (they are rendered, not merely collected):
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
-  call claude#difftree#open()
-  Assert join(claude#difftree#_lines(), "\n") =~# 'tracked\.txt',
+  call kimi#difftree#refresh()
+  call kimi#difftree#open()
+  Assert join(kimi#difftree#_lines(), "\n") =~# 'tracked\.txt',
         \ 'the panel should not be empty on the base branch'
 
 " ── the node itself ──────────────────────────────────────────────────────────
 
 Execute (the checked-out branch comes first and carries no suffix):
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   " The main worktree is the implicit home, so its branch is unadorned.
   AssertEqual 'main', Labels()[0]
 
 Execute (a clean root workspace is not listed at all):
   " Nothing dirty, no unpushed commits: an empty row would just be noise.
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual [], Labels()
 
 Execute (only the working-tree slot is filled, since committed is empty):
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
-  let rec = filter(copy(claude#difftree#files()),
+  call kimi#difftree#refresh()
+  let rec = filter(copy(kimi#difftree#files()),
         \ {_, f -> f.path ==# 'tracked.txt'})[0]
   AssertEqual '', rec.committed,
         \ 'a branch compared with itself has no committed changes'
@@ -102,8 +100,8 @@ Execute (commits ahead of the upstream count as committed changes):
   call writefile(['ahead'], g:_repo . '/ahead.txt')
   call system(g:_g . 'add -A')
   call system(g:_g . 'commit -qm "not pushed"')
-  call claude#difftree#refresh()
-  let rec = filter(copy(claude#difftree#files()),
+  call kimi#difftree#refresh()
+  let rec = filter(copy(kimi#difftree#files()),
         \ {_, f -> f.path ==# 'ahead.txt'})
   Assert !empty(rec), 'an unpushed commit should show: ' . string(Paths())
   AssertEqual 'A', rec[0].committed
@@ -115,7 +113,7 @@ Execute (a branch level with its upstream shows no committed changes):
   call system('git init -q --bare ' . shellescape(origin))
   call system(g:_g . 'remote add origin ' . shellescape(origin))
   call system(g:_g . 'push -q -u origin main')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual [], Paths(), 'nothing is ahead and nothing is dirty'
   call delete(origin, 'rf')
 
@@ -123,7 +121,7 @@ Execute (no upstream at all: uncommitted work only, and no error):
   Assert empty(systemlist('git -C ' . shellescape(g:_repo) . ' remote')),
         \ 'precondition: no remote configured'
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual ['tracked.txt'], Paths()
   AssertEqual ['tracked.txt'], Dirty()
 
@@ -136,11 +134,11 @@ Execute (another worktree on the base shows its uncommitted files):
   let g:_wt = g:_repo . '-wt'
   call system(g:_g . 'worktree add -q --detach ' . shellescape(g:_wt))
   call writefile(['dirty there'], g:_wt . '/tracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   " git resolves symlinks in worktree paths (/var -> /private/var), so the
   " recorded path is not the tempname verbatim.
   let g:_wtr = resolve(g:_wt)
-  let there = filter(copy(claude#difftree#files()),
+  let there = filter(copy(kimi#difftree#files()),
         \ {_, f -> resolve(f.worktree) ==# g:_wtr})
   call system(g:_g . 'worktree remove --force ' . shellescape(g:_wt))
   unlet g:_wt g:_wtr
@@ -148,11 +146,11 @@ Execute (another worktree on the base shows its uncommitted files):
 
 Execute (a session-only branch equal to the base is still skipped):
   " It has no worktree, so there is genuinely nothing to show for it.
-  call claude#session#_inject({'name': 'on main', 'status': 'closed',
+  call kimi#session#_inject({'name': 'on main', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'main'})
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   AssertEqual ['main'], Labels(),
         \ 'the session adds no second row for the same branch'
 
@@ -170,11 +168,11 @@ Execute (the root workspace comes first, then the other worktrees):
   call system(g:_g . 'worktree add -q ' . shellescape(wt) . ' sidebranch')
   " Give `orphan` a commit so it has something to list, with no checkout.
   call system(g:_g . 'branch -f orphan sidebranch')
-  call claude#session#_inject({'name': 'orphan work', 'status': 'closed',
+  call kimi#session#_inject({'name': 'orphan work', 'status': 'closed',
         \ 'cwd': g:_repo, 'project': g:_repo, 'worktree': g:_repo,
         \ 'branch': 'orphan'})
   call writefile(['changed'], g:_repo . '/tracked.txt')
-  call claude#difftree#refresh()
+  call kimi#difftree#refresh()
   let labels = Labels()
   call system(g:_g . 'worktree remove --force ' . shellescape(wt))
   " One row per branch: the checked-out one first, unadorned; a linked

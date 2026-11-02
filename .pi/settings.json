@@ -1,6 +1,0 @@
-{
-  "prompts": [
-    "../.claude/commands",
-    "../.claude/agents/feature-analyst.md"
-  ]
-}

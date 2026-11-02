@@ -1,49 +1,47 @@
-" Tests that live Claude sessions survive closing an ordinary split window.
+" Tests that live Kimi sessions survive closing an ordinary split window.
 "
 " Regression: the exit hook used to be registered on QuitPre, which fires for
-" every :q — so closing any unrelated split stopped the Claude job. It now
+" every :q — so closing any unrelated split stopped the Kimi job. It now
 " lives on ExitPre, which only fires when the quit really ends the session.
 "
 " Since sessions became global rather than per-tab, these run with *two* live
 " sessions: both must survive.
 
 Before:
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  let g:_saved_cmd   = get(g:, 'claude_cmd', 'claude')
-  let g:_saved_store = get(g:, 'claude_session_store', '')
-  " A stand-in for the Claude CLI, so the tests never launch the real binary.
-  let g:claude_cmd = 'sleep 30'
-  let g:_store_dir = tempname()
-  call mkdir(g:_store_dir, 'p')
-  let g:claude_session_store = g:_store_dir . '/sessions.json'
-  call claude#store#_reset()
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
+  " A stand-in for the CLI, so the tests never launch the real binary.
+  let g:_dir = tempname()
+  call mkdir(g:_dir, 'p')
+  call kimi#store#_set_root(g:_dir)
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
 
 After:
   " Stop and wipe whatever terminals the test left behind.
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  let g:claude_cmd           = g:_saved_cmd
-  let g:claude_session_store = g:_saved_store
-  call claude#store#_reset()
-  call delete(g:_store_dir, 'rf')
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
+  call kimi#store#_reset()
+  call delete(g:_dir, 'rf')
   only
 
 " ── autocommand registration ─────────────────────────────────────────────────
 
 Execute (jobs are stopped from ExitPre, never from a bare QuitPre):
   redir => quitpre
-  silent! autocmd claude_plugin QuitPre
+  silent! autocmd kimi_plugin QuitPre
   redir END
   Assert quitpre !~# '_stop_jobs',
         \ 'QuitPre must not stop jobs directly: it fires on every window close'
   if exists('##ExitPre')
     redir => exitpre
-    silent autocmd claude_plugin ExitPre
+    silent autocmd kimi_plugin ExitPre
     redir END
     Assert exitpre =~# '_stop_jobs',
           \ 'ExitPre should stop the jobs before Vim checks for E947'
@@ -51,40 +49,40 @@ Execute (jobs are stopped from ExitPre, never from a bare QuitPre):
 
 " ── closing other windows ────────────────────────────────────────────────────
 
-Execute (closing an unrelated split leaves every Claude job running):
-  let a = claude#session#new('one')
-  let b = claude#session#new('two')
-  let buf_a = claude#session#get(a).bufnr
-  let buf_b = claude#session#get(b).bufnr
-  " Leave the Claude windows, open an unrelated split and close it again.
+Execute (closing an unrelated split leaves every Kimi job running):
+  let a = kimi#session#new('one')
+  let b = kimi#session#new('two')
+  let buf_a = kimi#session#get(a).bufnr
+  let buf_b = kimi#session#get(b).bufnr
+  " Leave the Kimi windows, open an unrelated split and close it again.
   wincmd t
   split
   quit
   AssertEqual 'run', job_status(term_getjob(buf_a)),
-        \ 'closing an unrelated split must not stop a Claude job'
+        \ 'closing an unrelated split must not stop a Kimi job'
   AssertEqual 'run', job_status(term_getjob(buf_b)),
         \ 'the second session must survive too'
   Assert bufexists(buf_a) && bufexists(buf_b),
         \ 'both terminal buffers should survive'
 
-Execute (closing a Claude window keeps that session alive):
-  let id = claude#session#new('hideable')
-  let bufnr = claude#session#get(id).bufnr
+Execute (closing a Kimi window keeps that session alive):
+  let id = kimi#session#new('hideable')
+  let bufnr = kimi#session#get(id).bufnr
   call win_gotoid(bufwinid(bufnr))
   quit
   AssertEqual 'run', job_status(term_getjob(bufnr)),
-        \ ':q in a Claude window should only hide it (bufhidden=hide)'
-  AssertEqual -1, bufwinid(bufnr), 'the Claude window should be hidden'
+        \ ':q in a Kimi window should only hide it (bufhidden=hide)'
+  AssertEqual -1, bufwinid(bufnr), 'the Kimi window should be hidden'
   " The session is still reachable: the panel brings the same buffer back.
-  call claude#panel#open_session(id, 'here')
-  AssertEqual bufnr, claude#session#get(id).bufnr
+  call kimi#panel#open_session(id, 'here')
+  AssertEqual bufnr, kimi#session#get(id).bufnr
   Assert bufwinid(bufnr) != -1, 'the session should be visible again'
 
 Execute (closing one session's window leaves the other displayed):
-  let a = claude#session#new('one')
-  let b = claude#session#new('two')
-  let buf_a = claude#session#get(a).bufnr
-  let buf_b = claude#session#get(b).bufnr
+  let a = kimi#session#new('one')
+  let b = kimi#session#new('two')
+  let buf_a = kimi#session#get(a).bufnr
+  let buf_b = kimi#session#get(b).bufnr
   call win_gotoid(bufwinid(buf_a))
   quit
   AssertEqual -1, bufwinid(buf_a), 'only the closed window should hide'
@@ -95,40 +93,40 @@ Execute (closing one session's window leaves the other displayed):
 " ── the panel is not a session ───────────────────────────────────────────────
 
 Execute (hiding the panel stops no jobs):
-  let id = claude#session#new('untouched')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
-  call claude#panel#close()
+  let id = kimi#session#new('untouched')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
+  call kimi#panel#close()
   AssertEqual 'run', job_status(term_getjob(bufnr))
 
 " ── legacy QuitPre fallback (Vim without ExitPre) ────────────────────────────
 
 Execute (the fallback ignores quits that only close a split):
-  let a = claude#session#new('one')
-  let b = claude#session#new('two')
-  let buf_a = claude#session#get(a).bufnr
-  let buf_b = claude#session#get(b).bufnr
+  let a = kimi#session#new('one')
+  let b = kimi#session#new('two')
+  let buf_a = kimi#session#get(a).bufnr
+  let buf_b = kimi#session#get(b).bufnr
   wincmd t
   split
-  " Two ordinary windows besides the Claude terminals: this quit only closes a
+  " Two ordinary windows besides the Kimi terminals: this quit only closes a
   " split, so both sessions must survive. (The other half of the guard —
   " stopping the jobs when the last ordinary window goes — can't be exercised
   " here: Vader runs each suite in its own tab and the fallback defers
   " whenever tabs are open.)
-  call claude#_quit_pre()
+  call kimi#_quit_pre()
   AssertEqual 'run', job_status(term_getjob(buf_a)),
         \ 'the fallback must ignore quits that only close a split'
   AssertEqual 'run', job_status(term_getjob(buf_b))
   quit
 
 Execute (the panel window does not count as an ordinary window):
-  let id = claude#session#new('counted')
-  let bufnr = claude#session#get(id).bufnr
-  call claude#panel#open()
-  " Windows now: panel + Claude terminal + the original buffer. Only one is
+  let id = kimi#session#new('counted')
+  let bufnr = kimi#session#get(id).bufnr
+  call kimi#panel#open()
+  " Windows now: panel + Kimi terminal + the original buffer. Only one is
   " ordinary, so the fallback would stop the jobs — which is correct, and is
   " what proves the panel is excluded from the count.
-  let claude_bufs = claude#session#bufnrs()
-  AssertEqual [bufnr], claude_bufs
-  Assert index(claude_bufs, claude#panel#bufnr()) == -1,
+  let kimi_bufs = kimi#session#bufnrs()
+  AssertEqual [bufnr], kimi_bufs
+  Assert index(kimi_bufs, kimi#panel#bufnr()) == -1,
         \ 'the panel buffer must never be treated as a session'

@@ -1,19 +1,15 @@
 " End-to-end tests for the branch/name prompts and the workspace a session
 " ends up running in. Real git worktrees, real terminal jobs, prompts answered
-" with feedkeys(); the CLI itself is stood in for.
+" with feedkeys(); the CLI itself is stood in for via a fixture
+" $KIMI_CODE_HOME.
 
 Before:
-  call claude#session#_reset()
-  call claude#workspace#_reset()
-  call claude#store#_reset()
-  call claude#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
   let g:_saved_cwd = getcwd()
-  let g:_saved_cmd = get(g:, 'claude_cmd', 'claude')
-  let g:claude_cmd = 'sleep 30'
-  " --session-id/--name are never probed for with a stand-in command, but be
-  " explicit: this one understands neither.
-  let g:_saved_flags = get(g:, 'claude_session_flags', -1)
-  let g:claude_session_flags = 0
   let g:_root = tempname()
   call mkdir(g:_root, 'p')
   let g:_root = resolve(g:_root)
@@ -27,43 +23,33 @@ Before:
   call system(g:_git . 'add -A')
   call system(g:_git . 'commit -qm first')
   call system(g:_git . 'branch feature-branch')
-  " The transcript scan is capped by this, and other test files leave it at 0.
-  let g:_saved_limit = get(g:, 'claude_panel_closed_limit', 10)
-  let g:claude_panel_closed_limit = 10
-  let g:claude_session_store   = g:_root . '/sessions.json'
-  let g:claude_workspace_store = g:_root . '/workspaces.json'
-  let g:claude_workspace_dir   = ''
+  call kimi#store#_set_root(g:_root)
+  let g:_home = g:_root . '/kimi-home'
+  call mkdir(g:_home, 'p')
+  let $KIMI_CODE_HOME = g:_home
+  call kimi#cli#_set_cmd('sleep 30')
   execute 'cd ' . fnameescape(g:_repo)
-  let g:_transcript_dirs = []
 
 After:
-  " Any transcript directory a test fabricated. Each is named after a path
-  " under g:_root, so nothing of the user's own can be caught by this.
-  for d in g:_transcript_dirs
-    if d =~# '/\.claude/projects/' && d =~# escape(fnamemodify(g:_root, ':t'), '\')
-      call delete(d, 'rf')
-    endif
-  endfor
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  let g:claude_cmd                = g:_saved_cmd
-  let g:claude_session_flags      = g:_saved_flags
-  let g:claude_panel_closed_limit = g:_saved_limit
-  call claude#session#_reset()
-  call claude#workspace#_reset()
-  call claude#store#_reset()
-  call claude#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#workspace#_reset()
+  call kimi#store#_reset()
+  call kimi#panel#_reset()
+  call kimi#cli#_reset()
+  let $KIMI_CODE_HOME = ''
   call delete(g:_root, 'rf')
   only
 
 Execute (branch + blank name: a worktree is created and the session runs in it):
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  let id = claude#session#new('', '')
+  let id = kimi#session#new('', '')
   Assert !empty(id), 'a session should have started'
-  let rec = claude#session#get(id)
+  let rec = kimi#session#get(id)
   AssertEqual 'feature-branch', rec.name, 'named after the branch'
   AssertEqual 'feature-branch', rec.workspace
   AssertEqual g:_root . '/repo-feature-branch', rec.cwd
@@ -71,14 +57,14 @@ Execute (branch + blank name: a worktree is created and the session runs in it):
   AssertEqual g:_repo, rec.project, 'grouped under the main repo'
   Assert isdirectory(rec.cwd), 'the worktree should exist'
   AssertEqual 'run', job_status(term_getjob(rec.bufnr))
-  AssertEqual 1, len(claude#session#list()), 'it is listed'
+  AssertEqual 1, len(kimi#session#list()), 'it is listed'
 
 Execute (the job itself is started in the worktree, not in Vim's directory):
   " /bin/pwd reports the directory the process was actually given.
-  let g:claude_cmd = '/bin/pwd'
+  call kimi#cli#_set_cmd('/bin/pwd')
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  let id = claude#session#new('', '')
-  let bufnr = claude#session#get(id).bufnr
+  let id = kimi#session#new('', '')
+  let bufnr = kimi#session#get(id).bufnr
   " A path wider than the terminal wraps, so read the first rows as one.
   let printed = ''
   for _ in range(50)
@@ -98,8 +84,8 @@ Execute (a typed session name does not rename the workspace):
   " The workspace directory is always <project>-<branch>: what the user types
   " at the "Session name" prompt only labels the session.
   call feedkeys("feature-branch\<CR>my session\<CR>", 't')
-  let id = claude#session#new('', '')
-  let rec = claude#session#get(id)
+  let id = kimi#session#new('', '')
+  let rec = kimi#session#get(id)
   AssertEqual 'my session',     rec.name
   AssertEqual 'feature-branch', rec.workspace
   AssertEqual g:_root . '/repo-feature-branch', rec.cwd
@@ -107,71 +93,71 @@ Execute (a typed session name does not rename the workspace):
 Execute (two sessions on different branches keep their own workspaces):
   call system(g:_git . 'branch second')
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  call claude#session#new('', '')
+  call kimi#session#new('', '')
   call feedkeys("second\<CR>\<CR>", 't')
-  let id = claude#session#new('', '')
-  AssertEqual 'second', claude#session#get(id).workspace
-  AssertEqual 'second', claude#session#get(id).name
+  let id = kimi#session#new('', '')
+  AssertEqual 'second', kimi#session#get(id).workspace
+  AssertEqual 'second', kimi#session#get(id).name
 
 Execute (both blank: no worktree, unnamed, hidden from the panel):
   call feedkeys("\<CR>\<CR>", 't')
-  let id = claude#session#new('', '')
-  let rec = claude#session#get(id)
+  let id = kimi#session#new('', '')
+  let rec = kimi#session#get(id)
   AssertEqual '', rec.name
   AssertEqual '', rec.workspace
   AssertEqual 0,  rec.named
   AssertEqual g:_repo, rec.cwd, 'it runs where Vim already was'
-  AssertEqual [], claude#workspace#list(), 'no worktree was created'
+  AssertEqual [], kimi#workspace#list(), 'no worktree was created'
   " It is running, so it is listed even though nobody named it: it will label
-  " itself from its first message, and be buried once it has finished.
-  AssertEqual [id], map(copy(claude#session#list()), {_, r -> r.id})
-  call claude#session#delete(id)
-  AssertEqual [], claude#session#list(), 'finished and nameless: hidden'
+  " itself from its first prompt, and be buried once it has finished.
+  AssertEqual [id], map(copy(kimi#session#list()), {_, r -> r.id})
+  call kimi#session#delete(id)
+  AssertEqual [], kimi#session#list(), 'finished and nameless: hidden'
 
 Execute (name only: no worktree, but listed):
   call feedkeys("\<CR>just a name\<CR>", 't')
-  let id = claude#session#new('', '')
-  let rec = claude#session#get(id)
+  let id = kimi#session#new('', '')
+  let rec = kimi#session#get(id)
   AssertEqual 'just a name', rec.name
   AssertEqual '',            rec.workspace
   AssertEqual g:_repo,       rec.cwd
-  AssertEqual [id], map(copy(claude#session#list()), {_, r -> r.id})
+  AssertEqual [id], map(copy(kimi#session#list()), {_, r -> r.id})
 
 Execute (a selected workspace is where a branch-less session runs):
-  let ws = claude#workspace#create('feature-branch', '')
-  call claude#workspace#set_current('feature-branch')
+  let ws = kimi#workspace#create('feature-branch', '')
+  call kimi#workspace#set_current('feature-branch')
   call feedkeys("\<CR>in the workspace\<CR>", 't')
-  let id = claude#session#new('', '')
-  AssertEqual ws.path, claude#session#get(id).cwd
-  AssertEqual '', claude#session#get(id).workspace,
+  let id = kimi#session#new('', '')
+  AssertEqual ws.path, kimi#session#get(id).cwd
+  AssertEqual '', kimi#session#get(id).workspace,
         \ 'it borrows the workspace rather than owning one'
 
 Execute (the panel groups a workspace session under its own worktree):
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  call claude#session#new('', '')
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  let lines = join(claude#panel#_lines(), "\n")
+  call kimi#session#new('', '')
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  let lines = join(kimi#panel#_lines(), "\n")
   Assert lines =~# 'repo-feature-branch', 'the worktree node should appear'
   Assert lines =~# 'feature-branch', 'the branch node should appear'
 
 Execute (resuming puts the session back in its workspace):
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  let id = claude#session#new('', '')
-  let dir = claude#session#get(id).cwd
-  call claude#session#delete(id)
-  AssertEqual 'closed', claude#session#status(id)
+  let id = kimi#session#new('', '')
+  let dir = kimi#session#get(id).cwd
+  call kimi#session#delete(id)
+  AssertEqual 'closed', kimi#session#status(id)
   " Resume into a window of its own: taking over this one would fail on the
   " modified scratch buffer the test harness is sitting in.
-  call claude#session#resume(id, 'new')
-  let bufnr = claude#session#get(id).bufnr
+  call kimi#session#resume(id, 'new')
+  let bufnr = kimi#session#get(id).bufnr
   Assert bufnr != -1, 'the session should be live again'
-  AssertEqual dir, claude#session#get(id).cwd
+  AssertEqual dir, kimi#session#get(id).cwd
 
 Execute (the main checkout's branch runs the session there, not in a worktree):
   call feedkeys("main\<CR>named anyway\<CR>", 't')
-  let id = claude#session#new('', '')
-  let rec = claude#session#get(id)
+  let id = kimi#session#new('', '')
+  let rec = kimi#session#get(id)
   AssertEqual 'named anyway', rec.name
   AssertEqual '',      rec.workspace, 'the main checkout is not a workspace'
   AssertEqual g:_repo, rec.cwd
@@ -180,41 +166,43 @@ Execute (the main checkout's branch runs the session there, not in a worktree):
 Execute (a branch whose workspace exists runs the session in that workspace):
   " Exactly the case of asking twice for one branch: the second session
   " belongs in the worktree the first one made, not back in the main checkout.
-  let ws = claude#workspace#create('feature-branch', '')
+  let ws = kimi#workspace#create('feature-branch', '')
   call feedkeys("feature-branch\<CR>blah\<CR>", 't')
-  let id = claude#session#new('', '')
-  let rec = claude#session#get(id)
+  let id = kimi#session#new('', '')
+  let rec = kimi#session#get(id)
   AssertEqual 'blah',           rec.name
   AssertEqual ws.id,            rec.workspace, 'it joins the workspace'
   AssertEqual ws.path,          rec.cwd
   AssertEqual 'feature-branch', rec.branch,
         \ 'and is grouped under its own branch, not the one Vim is on'
-  AssertEqual 1, len(claude#workspace#list()),
+  AssertEqual 1, len(kimi#workspace#list()),
         \ 'no second worktree was made for the same branch'
 
 " ── surviving a restart ──────────────────────────────────────────────────────
 "
-" Claude files a transcript under the directory a session ran in, and a
+" The CLI files a session under the directory a session ran in, and a
 " workspace session runs in its own worktree. Both halves of the registry —
-" the store and the transcripts — have to look past the directory Vim happens
-" to be in, or the session vanishes the next time you open Vim in the repo.
+" the store and the CLI's session index — have to look past the directory Vim
+" happens to be in, or the session vanishes the next time you open Vim in the
+" repo.
 
 Execute (a workspace session is still listed after Vim restarts in the repo):
   call feedkeys("feature-branch\<CR>diff tree work\<CR>", 't')
-  let id = claude#session#new('', '')
+  let id = kimi#session#new('', '')
   " The workspace is named after the branch, whatever the session was called.
-  AssertEqual 'feature-branch', claude#session#get(id).workspace
+  AssertEqual 'feature-branch', kimi#session#get(id).workspace
 
   " Restart: drop every in-memory record, keep what is on disk.
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#session#_reset()
-  call claude#store#_reset()
-  call claude#session#refresh()
+  call kimi#session#_reset()
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
+  call kimi#session#refresh()
 
-  let recs = claude#session#list()
+  let recs = kimi#session#list()
   AssertEqual 1, len(recs), 'the session should have come back'
   AssertEqual 'diff tree work', recs[0].name
   AssertEqual 'feature-branch', recs[0].workspace
@@ -222,16 +210,17 @@ Execute (a workspace session is still listed after Vim restarts in the repo):
 
 Execute (it comes back grouped under its own workspace):
   call feedkeys("feature-branch\<CR>diff tree work\<CR>", 't')
-  call claude#session#new('', '')
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  call kimi#session#new('', '')
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#session#_reset()
-  call claude#store#_reset()
-  call claude#session#refresh()
+  call kimi#session#_reset()
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
+  call kimi#session#refresh()
 
-  let tree = claude#session#tree()
+  let tree = kimi#session#tree()
   AssertEqual 1, len(tree)
   AssertEqual g:_root . '/repo-feature-branch', tree[0].path,
         \ 'the workspace gets its own top-level group, not the main checkout'
@@ -241,126 +230,143 @@ Execute (it comes back grouped under its own workspace):
 Execute (the branch row is named after the real branch, not the slugified workspace name):
   call system(g:_git . 'branch pedro.cordeiro/macos-fleet-config')
   call feedkeys("pedro.cordeiro/macos-fleet-config\<CR>\<CR>", 't')
-  call claude#session#new('', '')
-  for b in claude#session#bufnrs()
-    call claude#session#stop_job(b)
+  call kimi#session#new('', '')
+  for b in kimi#session#bufnrs()
+    call kimi#session#stop_job(b)
     silent! execute 'bwipeout! ' . b
   endfor
-  call claude#session#_reset()
-  call claude#store#_reset()
-  call claude#session#refresh()
+  call kimi#session#_reset()
+  call kimi#cli#_set_cmd('sleep 30')
+  call kimi#store#_reset()
+  call kimi#session#refresh()
 
-  let tree = claude#session#tree()
+  let tree = kimi#session#tree()
   AssertEqual 1, len(tree)
   Assert tree[0].path =~# 'pedro.cordeiro-macos-fleet-config$',
         \ 'the workspace directory is slugified: ' . tree[0].path
   AssertEqual 'pedro.cordeiro/macos-fleet-config', tree[0].branches[0].label,
         \ 'the branch row should show the real branch, slash and all'
 
-Execute (a transcript written in the workspace is found from the main checkout):
-  let ws = claude#workspace#create('feature-branch', '')
-  let dir = claude#session#project_dir(ws.path)
-  call add(g:_transcript_dirs, dir)
-  call mkdir(dir, 'p')
-  call writefile([json_encode({'type': 'user', 'cwd': ws.path,
-        \ 'gitBranch': 'feature-branch',
-        \ 'message': {'content': 'rework the diff tree'}})],
-        \ dir . '/11111111-2222-3333-4444-555555555555.jsonl')
+Execute (a CLI session written in the workspace is found from the main checkout):
+  let ws = kimi#workspace#create('feature-branch', '')
+  let dir = g:_home . '/sessions/wd_x/ses-from-cli'
+  call mkdir(dir . '/agents/main', 'p')
+  call writefile([json_encode({'sessionId': 'ses-from-cli',
+        \ 'sessionDir': dir, 'workDir': ws.path})],
+        \ g:_home . '/session_index.jsonl')
+  call writefile([json_encode({'id': 'ses-from-cli',
+        \ 'title': 'rework the diff tree', 'isCustomTitle': 1,
+        \ 'lastPrompt': 'rework the diff tree please',
+        \ 'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})],
+        \ dir . '/state.json')
+  call kimi#cli#_reset()
 
-  call claude#session#refresh()
-  call claude#session#toggle_hidden()
-  let recs = claude#session#list()
-  AssertEqual 1, len(recs), 'the transcript should have been picked up'
-  AssertEqual ws.path,        recs[0].cwd
+  call kimi#session#refresh()
+  let recs = kimi#session#list()
+  AssertEqual 1, len(recs), 'the CLI session should have been picked up'
+  AssertEqual ws.path,          recs[0].cwd
   AssertEqual 'feature-branch', recs[0].branch
-  AssertEqual '', recs[0].name, 'nobody typed a name, so there is none'
-  AssertEqual 'rework the diff tree', recs[0].snippet
-  AssertEqual 'rework the diff tree', claude#session#label(recs[0]),
-        \ 'the first message labels it, as it always has'
-  AssertEqual 0, recs[0].named, 'never named here, so hidden by default'
+  AssertEqual 'rework the diff tree', recs[0].name,
+        \ 'the CLI title labels it'
+  AssertEqual 'rework the diff tree', kimi#session#label(recs[0])
+  AssertEqual 1, recs[0].named, 'a title is a label, so not buried'
+
+Execute (a CLI session with no title falls back to its last prompt):
+  let ws = kimi#workspace#create('feature-branch', '')
+  let dir = g:_home . '/sessions/wd_x/ses-unlabeled'
+  call mkdir(dir . '/agents/main', 'p')
+  call writefile([json_encode({'sessionId': 'ses-unlabeled',
+        \ 'sessionDir': dir, 'workDir': ws.path})],
+        \ g:_home . '/session_index.jsonl')
+  call writefile([json_encode({'id': 'ses-unlabeled', 'title': '',
+        \ 'lastPrompt': 'what does this lever do',
+        \ 'createdAt': (localtime() - 3600) * 1000, 'updatedAt': (localtime() - 3600) * 1000})],
+        \ dir . '/state.json')
+  call kimi#cli#_reset()
+
+  call kimi#session#refresh()
+  call kimi#session#toggle_hidden()
+  let recs = kimi#session#list()
+  AssertEqual 1, len(recs), 'the CLI session should have been picked up'
+  AssertEqual '', recs[0].name, 'no title, so no name'
+  AssertEqual 'what does this lever do', recs[0].snippet
+  AssertEqual 'what does this lever do', kimi#session#label(recs[0]),
+        \ 'the last prompt labels it'
+  AssertEqual 0, recs[0].named, 'never labelled, so hidden by default'
 
 Execute (a session from another repository is not adopted):
   let other = g:_root . '/other'
   call mkdir(other, 'p')
   call system('git -C ' . shellescape(other) . ' init -q -b main')
-  call claude#store#save({'version': 1, 'sessions':
+  call kimi#store#save({'version': 1, 'sessions':
         \ {'elsewhere': {'name': 'not ours', 'named': 1, 'cwd': other,
         \                'project': other, 'created': 1}}})
-  call claude#session#refresh()
-  AssertEqual [], claude#session#list()
+  call kimi#session#refresh()
+  AssertEqual [], kimi#session#list()
 
 Execute (an old record with no project and another cwd is still skipped):
-  call claude#store#save({'version': 1, 'sessions':
+  call kimi#store#save({'version': 1, 'sessions':
         \ {'old': {'name': 'somewhere else', 'cwd': g:_root . '/nowhere',
         \          'created': 1}}})
-  call claude#session#refresh()
-  AssertEqual [], claude#session#list()
+  call kimi#session#refresh()
+  AssertEqual [], kimi#session#list()
 
-Execute (with the prompts turned off a session is left nameless):
-  let saved = g:claude_session_prompt_name
-  let g:claude_session_prompt_name = 0
-  try
-    let id = claude#session#new('', '')
-    let rec = claude#session#get(id)
-    AssertEqual '',      rec.name, 'nothing was asked, so nothing was named'
-    AssertEqual 0,       rec.named
-    AssertEqual '',      rec.workspace, 'and no branch was asked for either'
-    AssertEqual g:_repo, rec.cwd
-    AssertEqual [id], map(copy(claude#session#list()), {_, r -> r.id}),
-          \ 'running, so listed; nameless, so buried once it finishes'
-    call claude#session#delete(id)
-    AssertEqual [], claude#session#list()
-  finally
-    let g:claude_session_prompt_name = saved
-  endtry
+Execute (spawning without any prompt leaves the session nameless):
+  let id = kimi#session#spawn({})
+  let rec = kimi#session#get(id)
+  AssertEqual '',      rec.name, 'nothing was asked, so nothing was named'
+  AssertEqual 0,       rec.named
+  AssertEqual '',      rec.workspace, 'and no branch was asked for either'
+  AssertEqual g:_repo, rec.cwd
+  AssertEqual [id], map(copy(kimi#session#list()), {_, r -> r.id}),
+        \ 'running, so listed; nameless, so buried once it finishes'
+  call kimi#session#delete(id)
+  AssertEqual [], kimi#session#list()
 
 Execute (a name passed as an argument still names the session):
-  let id = claude#session#new('from the command line', '')
-  AssertEqual 'from the command line', claude#session#get(id).name
-  AssertEqual 1, claude#session#get(id).named
-  AssertEqual 1, len(claude#session#list())
+  let id = kimi#session#new('from the command line', '')
+  AssertEqual 'from the command line', kimi#session#get(id).name
+  AssertEqual 1, kimi#session#get(id).named
+  AssertEqual 1, len(kimi#session#list())
 
 Execute (n starts a session in the workspace of the row under the cursor):
-  " n asks for a name; this is about where it lands, so the prompt is off.
-  let g:claude_session_prompt_name = 0
   call feedkeys("feature-branch\<CR>\<CR>", 't')
-  let g:claude_session_prompt_name = 1
-  let first = claude#session#new('', '')
-  let ws    = claude#session#get(first).workspace
+  let first = kimi#session#new('', '')
+  let ws    = kimi#session#get(first).workspace
   Assert !empty(ws), 'the fixture session should have a workspace'
 
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
-  call search(claude#session#label(claude#session#get(first)), 'W')
-  let g:claude_session_prompt_name = 0
+  call search(kimi#session#label(kimi#session#get(first)), 'W')
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
+  call kimi#panel#_set_ask_name(1)
 
   let ids = []
-  for rec in claude#session#live()
+  for rec in kimi#session#live()
     if rec.id !=# first
       call add(ids, rec.id)
     endif
   endfor
   AssertEqual 1, len(ids), 'n should have started exactly one more'
-  AssertEqual ws, claude#session#get(ids[0]).workspace,
+  AssertEqual ws, kimi#session#get(ids[0]).workspace,
         \ 'a session started from a row lands where that row lives'
-  AssertEqual claude#session#get(first).cwd, claude#session#get(ids[0]).cwd
+  AssertEqual kimi#session#get(first).cwd, kimi#session#get(ids[0]).cwd
 
 Execute (n away from any session falls back to the selected workspace):
-  let ws = claude#workspace#create('feature-branch', '')
-  call claude#workspace#select(ws.id)
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  let ws = kimi#workspace#create('feature-branch', '')
+  call kimi#workspace#select(ws.id)
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
-  let g:claude_session_prompt_name = 0
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
-  let live = claude#session#live()
+  call kimi#panel#_set_ask_name(1)
+  let live = kimi#session#live()
   AssertEqual 1, len(live)
   AssertEqual ws.id, live[0].workspace,
-        \ 'with no row to read, <leader>cw decides'
+        \ 'with no row to read, <leader>kw decides'
 
 " The session n just started: the live record that was not there before it was
 " pressed. live()[0] cannot be trusted here — two sessions focused in the same
@@ -368,14 +374,14 @@ Execute (n away from any session falls back to the selected workspace):
 Execute (helper):
   function! LiveIds() abort
     let out = []
-    for rec in claude#session#live()
+    for rec in kimi#session#live()
       call add(out, rec.id)
     endfor
     return out
   endfunction
 
   function! Newcomer(before) abort
-    for rec in claude#session#live()
+    for rec in kimi#session#live()
       if index(a:before, rec.id) < 0
         return rec
       endif
@@ -385,24 +391,24 @@ Execute (helper):
 
 Execute (n from a branch row lands in that branch's workspace):
   " Two workspaces, so there is a wrong answer to give.
-  let g:claude_session_prompt_name = 0
   call system(g:_git . 'branch other-branch')
-  let a = claude#workspace#create('feature-branch', '')
-  let b = claude#workspace#create('other-branch', '')
-  call claude#session#spawn({'workspace': a.id, 'placement': 'new'})
-  call claude#session#spawn({'workspace': b.id, 'placement': 'new'})
+  let a = kimi#workspace#create('feature-branch', '')
+  let b = kimi#workspace#create('other-branch', '')
+  call kimi#session#spawn({'workspace': a.id, 'placement': 'new'})
+  call kimi#session#spawn({'workspace': b.id, 'placement': 'new'})
 
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
   " The branch row, not the group row above it whose path also says it.
   call search('^  ▾ other-branch$', 'W')
   Assert getline('.') =~# '^  ▾ other-branch$',
         \ 'expected the branch row: ' . getline('.')
   let before = LiveIds()
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
+  call kimi#panel#_set_ask_name(1)
 
   let new = Newcomer(before)
   AssertEqual b.id, new.workspace,
@@ -410,55 +416,55 @@ Execute (n from a branch row lands in that branch's workspace):
   AssertEqual b.path, new.cwd
 
 Execute (n from a workspace's group row lands there too):
-  let g:claude_session_prompt_name = 0
-  let ws = claude#workspace#create('feature-branch', '')
-  call claude#session#spawn({'workspace': ws.id, 'placement': 'new'})
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  let ws = kimi#workspace#create('feature-branch', '')
+  call kimi#session#spawn({'workspace': ws.id, 'placement': 'new'})
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
   call search('repo-feature-branch', 'W')
   let before = LiveIds()
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
+  call kimi#panel#_set_ask_name(1)
   AssertEqual ws.id, Newcomer(before).workspace
 
 Execute (a session with no workspace of its own still lands in its worktree):
-  let g:claude_session_prompt_name = 0
-  let ws = claude#workspace#create('feature-branch', '')
+  let ws = kimi#workspace#create('feature-branch', '')
   " A record from before workspaces existed: it ran in the worktree but names
   " no workspace at all.
-  call claude#session#_inject({'id': 'old', 'name': 'legacy', 'workspace': '',
+  call kimi#session#_inject({'id': 'old', 'name': 'legacy', 'workspace': '',
         \ 'status': 'closed', 'cwd': ws.path, 'project': g:_repo,
         \ 'worktree': ws.path, 'branch': 'feature-branch'})
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
   call search('legacy', 'W')
   let before = LiveIds()
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
+  call kimi#panel#_set_ask_name(1)
   let new = Newcomer(before)
   AssertEqual ws.path, new.cwd, 'the row it is drawn under is where it lives'
   AssertEqual ws.id,   new.workspace
 
 Execute (n on the project row lands in the main checkout):
-  let g:claude_session_prompt_name = 0
-  let ws = claude#workspace#create('feature-branch', '')
-  call claude#workspace#select(ws.id)
-  call claude#session#spawn({'workspace': ws.id, 'placement': 'new'})
+  let ws = kimi#workspace#create('feature-branch', '')
+  call kimi#workspace#select(ws.id)
+  call kimi#session#spawn({'workspace': ws.id, 'placement': 'new'})
   " A workspace session alone gets its own top-level group; a plain one
   " grounds the bare project row this test exercises.
-  call claude#session#_inject({'name': 'on main', 'status': 'idle',
+  call kimi#session#_inject({'name': 'on main', 'status': 'idle',
         \ 'project': g:_repo, 'worktree': g:_repo, 'branch': 'main'})
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   call cursor(1, 1)
   call search('^▾ repo$', 'W')
   let before = LiveIds()
+  call kimi#panel#_set_ask_name(0)
   normal n
-  let g:claude_session_prompt_name = 1
+  call kimi#panel#_set_ask_name(1)
   AssertEqual g:_repo, Newcomer(before).cwd,
         \ 'the project row is the repository root, whatever is selected'

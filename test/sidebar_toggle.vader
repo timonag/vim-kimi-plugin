@@ -1,33 +1,23 @@
-" Tests for the one-key sidebar column: <C-a> (:ClaudeSidebars) raises the
+" Tests for the one-key sidebar column: <C-a> (:KimiSidebars) raises the
 " session panel, the diff tree and NERDTree together, and dismisses all three
 " once they are all showing.
 "
 " NERDTree cannot be driven from a scripted Vim, so it is stood in for by a
 " pair of stub commands opening a structurally identical window — a
 " left-anchored, width-fixed scratch split named the way the real tree names
-" its buffer, which is how claude#sidebar#nerdtree_winid() finds it.
+" its buffer, which is how kimi#sidebar#nerdtree_winid() finds it.
 "
 " The percentage heights are asserted against &lines rather than a literal:
 " the test runner's screen size is whatever the terminal gives it.
 
 Before:
-  call claude#panel#_reset()
-  call claude#difftree#_reset()
-  call claude#sidebar#_reset()
-  let g:_saved_store = get(g:, 'claude_session_store', '')
+  call kimi#panel#_reset()
+  call kimi#difftree#_reset()
+  call kimi#sidebar#_reset()
   let g:_store_dir = tempname()
   call mkdir(g:_store_dir, 'p')
-  let g:claude_session_store = g:_store_dir . '/sessions.json'
-  let g:_saved_dtstore = get(g:, 'claude_difftree_store', '')
-  let g:claude_difftree_store = g:_store_dir . '/bases.json'
-  let g:_saved_limit = get(g:, 'claude_panel_closed_limit', 10)
-  let g:claude_panel_closed_limit = 0
-  let g:claude_panel_nerdtree_stack = 1
-  let g:claude_panel_height = 15
-  let g:claude_panel_height_pct = 25
-  let g:claude_difftree_height = 15
-  let g:claude_difftree_height_pct = 40
-  call claude#store#_reset()
+  call kimi#store#_set_root(g:_store_dir)
+  call kimi#store#_reset()
 
   function! FakeNerdOpen() abort
     topleft vertical 31split
@@ -61,9 +51,9 @@ Before:
   function! Order() abort
     let l:rows = []
     for [l:name, l:id] in [
-          \ ['SESS', claude#panel#winid()],
-          \ ['DIFF', claude#difftree#winid()],
-          \ ['NERD', claude#sidebar#nerdtree_winid()]]
+          \ ['SESS', kimi#panel#winid()],
+          \ ['DIFF', kimi#difftree#winid()],
+          \ ['NERD', kimi#sidebar#nerdtree_winid()]]
       if l:id > 0 && win_id2win(l:id) > 0
         call add(l:rows, [win_screenpos(win_id2win(l:id))[0], l:name])
       endif
@@ -78,82 +68,55 @@ Before:
 
 After:
   call NoNerd()
-  call claude#panel#_reset()
-  call claude#difftree#_reset()
-  call claude#sidebar#_reset()
-  let g:claude_panel_closed_limit = g:_saved_limit
-  let g:claude_session_store = g:_saved_store
-  let g:claude_difftree_store = g:_saved_dtstore
-  call claude#store#_reset()
+  call kimi#panel#_reset()
+  call kimi#difftree#_reset()
+  call kimi#sidebar#_reset()
+  call kimi#store#_reset()
   call delete(g:_store_dir, 'rf')
   silent! only
 
 " ── resolving a height ───────────────────────────────────────────────────────
 
 Execute (a positive percentage wins over the line count):
-  let g:_p = 50
-  let g:_l = 15
-  AssertEqual Pct(50), claude#sidebar#height_pct('_p', '_l', 9)
+  AssertEqual Pct(50), kimi#sidebar#height_pct(50, 15)
 
-Execute (zero falls back to the configured line count):
-  let g:_p = 0
-  let g:_l = 15
-  AssertEqual 15, claude#sidebar#height_pct('_p', '_l', 9)
+Execute (zero falls back to the line count):
+  AssertEqual 15, kimi#sidebar#height_pct(0, 15)
 
-Execute (an unset percentage falls back too):
-  unlet! g:_p
-  let g:_l = 15
-  AssertEqual 15, claude#sidebar#height_pct('_p', '_l', 9)
-
-Execute (with neither set the default lines are used):
-  unlet! g:_p
-  unlet! g:_l
-  AssertEqual 9, claude#sidebar#height_pct('_p', '_l', 9)
-
-Execute (a non-number percentage is ignored rather than erroring):
-  let g:_p = 'half'
-  let g:_l = 15
-  AssertEqual 15, claude#sidebar#height_pct('_p', '_l', 9)
-
-Execute (a negative percentage falls back):
-  let g:_p = -25
-  let g:_l = 15
-  AssertEqual 15, claude#sidebar#height_pct('_p', '_l', 9)
+Execute (a negative percentage falls back too):
+  AssertEqual 15, kimi#sidebar#height_pct(-25, 15)
 
 Execute (the percentage never resolves to nothing on a tiny screen):
-  let g:_p = 1
-  let g:_l = 15
-  Assert claude#sidebar#height_pct('_p', '_l', 9) >= 1
+  Assert kimi#sidebar#height_pct(1, 15) >= 1
 
-" ── the panels read their own options ────────────────────────────────────────
+" ── the panels' built-in proportions ─────────────────────────────────────────
 
 Execute (the session panel sizes itself by percentage):
-  call claude#panel#open()
-  call claude#difftree#open()
-  call claude#sidebar#stack()
-  AssertEqual Pct(25), winheight(win_id2win(claude#panel#winid())),
-        \ 'the panel takes g:claude_panel_height_pct of the screen'
-  AssertEqual 1, getwinvar(win_id2win(claude#panel#winid()), '&winfixheight')
+  call kimi#panel#open()
+  call kimi#difftree#open()
+  call kimi#sidebar#stack()
+  AssertEqual Pct(25), winheight(win_id2win(kimi#panel#winid())),
+        \ 'the panel takes a quarter of the screen'
+  AssertEqual 1, getwinvar(win_id2win(kimi#panel#winid()), '&winfixheight')
 
-Execute (zeroing the percentage restores the line count):
-  let g:claude_panel_height_pct = 0
-  let g:claude_panel_height = 6
-  call claude#panel#open()
-  call claude#difftree#open()
-  call claude#sidebar#stack()
-  AssertEqual 6, winheight(win_id2win(claude#panel#winid())),
-        \ 'a config written before percentages existed still applies'
+Execute (a line count applies when the percentage is pinned to zero):
+  call kimi#sidebar#_set_heights(0, 6)
+  call kimi#panel#open()
+  call kimi#difftree#open()
+  call kimi#sidebar#stack()
+  AssertEqual 6, winheight(win_id2win(kimi#panel#winid()))
+  call kimi#sidebar#_set_heights(-1, -1)
 
 Execute (the diff tree sizes itself by percentage when it is not the bottom):
   call StubNerd()
-  call claude#sidebar#toggle_all()
-  AssertEqual Pct(40), winheight(win_id2win(claude#difftree#winid()))
-  AssertEqual 1, getwinvar(win_id2win(claude#difftree#winid()), '&winfixheight')
+  call kimi#sidebar#toggle_all()
+  AssertEqual Pct(40), winheight(win_id2win(kimi#difftree#winid()))
+  AssertEqual 1, getwinvar(win_id2win(kimi#difftree#winid()), '&winfixheight')
 
 Execute (NERDTree absorbs the remaining quarter and is never fixed):
   call StubNerd()
-  call claude#sidebar#toggle_all()
-  let nerd = claude#sidebar#nerdtree_winid()
+  call kimi#sidebar#toggle_all()
+  let nerd = kimi#sidebar#nerdtree_winid()
   Assert winheight(win_id2win(nerd)) > 0,
         \ 'the bottom sidebar absorbs the remaining lines'
   AssertEqual 0, getwinvar(win_id2win(nerd), '&winfixheight')
@@ -162,53 +125,53 @@ Execute (NERDTree absorbs the remaining quarter and is never fixed):
 
 Execute (one call raises all three, stacked in priority order):
   call StubNerd()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual ['SESS', 'DIFF', 'NERD'], Order()
 
 Execute (a second call dismisses all three):
   call StubNerd()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual ['SESS', 'DIFF', 'NERD'], Order()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual [], Order()
-  Assert !claude#panel#is_open(),   'the session panel must be closed'
-  Assert !claude#difftree#is_open(), 'the diff tree must be closed'
+  Assert !kimi#panel#is_open(),   'the session panel must be closed'
+  Assert !kimi#difftree#is_open(), 'the diff tree must be closed'
 
 Execute (a sidebar already open is joined rather than torn down):
   call StubNerd()
-  call claude#panel#open()
-  let sess = claude#panel#winid()
-  call claude#sidebar#toggle_all()
+  call kimi#panel#open()
+  let sess = kimi#panel#winid()
+  call kimi#sidebar#toggle_all()
   AssertEqual ['SESS', 'DIFF', 'NERD'], Order()
-  AssertEqual sess, claude#panel#winid(),
+  AssertEqual sess, kimi#panel#winid(),
         \ 'the panel that was already up must survive untouched'
 
 Execute (the command drives the same toggle):
   call StubNerd()
-  ClaudeSidebars
+  KimiSidebars
   AssertEqual ['SESS', 'DIFF', 'NERD'], Order()
-  ClaudeSidebars
+  KimiSidebars
   AssertEqual [], Order()
 
 Execute (the cursor is left where it started):
   call StubNerd()
   let here = win_getid()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual here, win_getid(), 'opening the column must not steal focus'
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual here, win_getid(), 'closing it must not either'
 
 " ── without NERDTree installed ───────────────────────────────────────────────
 
-Execute (the two Claude sidebars share the column on their own):
+Execute (the two kimi sidebars share the column on their own):
   call NoNerd()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual ['SESS', 'DIFF'], Order()
-  Assert claude#panel#is_open() && claude#difftree#is_open()
+  Assert kimi#panel#is_open() && kimi#difftree#is_open()
 
 Execute (the toggle still closes with NERDTree absent):
   call NoNerd()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual ['SESS', 'DIFF'], Order()
-  call claude#sidebar#toggle_all()
+  call kimi#sidebar#toggle_all()
   AssertEqual [], Order()

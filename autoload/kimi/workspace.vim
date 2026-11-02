@@ -1,6 +1,6 @@
 " ── git worktree workspaces ──────────────────────────────────────────────────
 "
-" A workspace is a git worktree that a Claude session owns: its own checkout
+" A workspace is a git worktree that a Kimi session owns: its own checkout
 " of one branch, so two sessions can work on two branches at once without
 " fighting over a single directory.
 "
@@ -57,7 +57,7 @@ endfunction
 " suppressed the way the background warn-once messages are.
 function! s:warn(msg) abort
   echohl WarningMsg
-  echomsg 'claude.vim: ' . a:msg
+  echomsg 'kimi.vim: ' . a:msg
   echohl None
 endfunction
 
@@ -68,9 +68,9 @@ endfunction
 " one, which has no worktree to hang a workspace off.
 "
 " --git-common-dir is what collapses linked worktrees into one project; the
-" derivation matches claude#session#group_of() so a workspace and the session
+" derivation matches kimi#session#group_of() so a workspace and the session
 " spawned in it agree on which project they belong to.
-function! claude#workspace#project_root() abort
+function! kimi#workspace#project_root() abort
   let l:cwd = getcwd()
   if !has_key(s:root_cache, l:cwd)
     let s:root_cache[l:cwd] = s:derive_root(l:cwd)
@@ -130,12 +130,12 @@ endfunction
 " ── the store ────────────────────────────────────────────────────────────────
 
 function! s:load() abort
-  return claude#store#load_at(claude#store#workspace_path(),
+  return kimi#store#load_at(kimi#store#workspace_path(),
         \ 'workspaces', 'workspace store')
 endfunction
 
 function! s:save(data) abort
-  return claude#store#save_at(claude#store#workspace_path(),
+  return kimi#store#save_at(kimi#store#workspace_path(),
         \ a:data, 'workspace store')
 endfunction
 
@@ -156,8 +156,8 @@ endfunction
 " A worktree removed behind our back (`git worktree remove`, or an rm -rf)
 " leaves a record pointing at nothing, so the list prunes those and writes the
 " survivors back rather than offering a directory that is gone.
-function! claude#workspace#list() abort
-  let l:root = claude#workspace#project_root()
+function! kimi#workspace#list() abort
+  let l:root = kimi#workspace#project_root()
   if empty(l:root)
     return []
   endif
@@ -196,11 +196,11 @@ function! s:cmp(a, b) abort
 endfunction
 
 " One workspace of the current repository, or {} when it is unknown or gone.
-function! claude#workspace#get(id) abort
+function! kimi#workspace#get(id) abort
   if empty(a:id)
     return {}
   endif
-  for l:rec in claude#workspace#list()
+  for l:rec in kimi#workspace#list()
     if l:rec.id ==# a:id
       return l:rec
     endif
@@ -209,9 +209,9 @@ function! claude#workspace#get(id) abort
 endfunction
 
 " The workspace a session was spawned in, or {}.
-function! claude#workspace#for_session(id) abort
-  let l:rec = claude#session#get(a:id)
-  return empty(l:rec) ? {} : claude#workspace#get(get(l:rec, 'workspace', ''))
+function! kimi#workspace#for_session(id) abort
+  let l:rec = kimi#session#get(a:id)
+  return empty(l:rec) ? {} : kimi#workspace#get(get(l:rec, 'workspace', ''))
 endfunction
 
 function! s:put(rec) abort
@@ -233,13 +233,13 @@ function! s:slug(text) abort
 endfunction
 
 " {base}, or base-1, base-2, … until nothing in this repository holds it.
-function! claude#workspace#unique_name(base) abort
+function! kimi#workspace#unique_name(base) abort
   let l:base = s:slug(a:base)
   if empty(l:base)
     let l:base = 'workspace'
   endif
   let l:taken = {}
-  for l:rec in claude#workspace#list()
+  for l:rec in kimi#workspace#list()
     let l:taken[l:rec.name] = 1
   endfor
   if !has_key(l:taken, l:base)
@@ -252,14 +252,10 @@ function! claude#workspace#unique_name(base) abort
   return l:base . '-' . l:n
 endfunction
 
-" Where a workspace directory goes: under g:claude_workspace_dir when it is
-" set, else beside the main checkout as <repo>-<name>, which keeps every
-" worktree of one project together in one parent directory.
+" Where a workspace directory goes: beside the main checkout as
+" <repo>-<name>, which keeps every worktree of one project together in one
+" parent directory.
 function! s:dir_for(root, name) abort
-  let l:base = get(g:, 'claude_workspace_dir', '')
-  if !empty(l:base)
-    return substitute(expand(l:base), '/\+$', '', '') . '/' . a:name
-  endif
   return fnamemodify(a:root, ':h') . '/' . fnamemodify(a:root, ':t')
         \ . '-' . a:name
 endfunction
@@ -338,7 +334,7 @@ endfunction
 "     where the session runs but is not a workspace and is never persisted.
 function! s:existing(root, branch, where) abort
   let l:where = resolve(a:where)
-  for l:rec in claude#workspace#list()
+  for l:rec in kimi#workspace#list()
     if resolve(l:rec.path) ==# l:where
       return l:rec
     endif
@@ -349,7 +345,7 @@ function! s:existing(root, branch, where) abort
           \ 'path': a:root, 'project': a:root, 'created': localtime()}
   endif
 
-  let l:name = claude#workspace#unique_name(a:branch)
+  let l:name = kimi#workspace#unique_name(a:branch)
   let l:rec = {
         \ 'id':      l:name,
         \ 'name':    l:name,
@@ -370,13 +366,13 @@ endfunction
 " s:existing() hands back the checkout it lives in instead. Returns the
 " record, or {} when there is nowhere to run — every failure is reported to
 " the user and none of them is fatal to the caller.
-function! claude#workspace#create(branch, name) abort
+function! kimi#workspace#create(branch, name) abort
   let l:branch = trim(a:branch)
   if empty(l:branch)
     return {}
   endif
 
-  let l:root = claude#workspace#project_root()
+  let l:root = kimi#workspace#project_root()
   if empty(l:root)
     call s:warn('not inside a git worktree; no workspace created')
     return {}
@@ -388,7 +384,7 @@ function! claude#workspace#create(branch, name) abort
     return s:existing(l:root, l:ref.local, l:where)
   endif
 
-  let l:name = claude#workspace#unique_name(
+  let l:name = kimi#workspace#unique_name(
         \ empty(a:name) ? l:ref.local : a:name)
   let l:dir  = s:dir_for(l:root, l:name)
   if isdirectory(l:dir) || filereadable(l:dir)
@@ -427,7 +423,7 @@ endfunction
 " ── removing one ─────────────────────────────────────────────────────────────
 
 function! s:remove(id, force) abort
-  let l:rec = claude#workspace#get(a:id)
+  let l:rec = kimi#workspace#get(a:id)
   if empty(l:rec)
     return 0
   endif
@@ -455,13 +451,13 @@ endfunction
 
 " Remove {id}'s worktree with `git worktree remove`. Fails, leaving the
 " record untouched, when the worktree has uncommitted changes or is locked.
-function! claude#workspace#remove(id) abort
+function! kimi#workspace#remove(id) abort
   return s:remove(a:id, 0)
 endfunction
 
 " Remove {id}'s worktree with `git worktree remove --force`, discarding any
 " uncommitted changes.
-function! claude#workspace#force_remove(id) abort
+function! kimi#workspace#force_remove(id) abort
   return s:remove(a:id, 1)
 endfunction
 
@@ -469,17 +465,17 @@ endfunction
 
 " The workspace new sessions run in when they are given no branch of their
 " own. {} means the main checkout.
-function! claude#workspace#current() abort
-  return claude#workspace#get(s:current)
+function! kimi#workspace#current() abort
+  return kimi#workspace#get(s:current)
 endfunction
 
 " Select {id} ('' for the main checkout). Returns 1 when it took effect.
-function! claude#workspace#set_current(id) abort
+function! kimi#workspace#set_current(id) abort
   if empty(a:id)
     let s:current = ''
     return 1
   endif
-  if empty(claude#workspace#get(a:id))
+  if empty(kimi#workspace#get(a:id))
     return 0
   endif
   let s:current = a:id
@@ -487,36 +483,34 @@ function! claude#workspace#set_current(id) abort
 endfunction
 
 " The directory a branch-less session should be spawned in.
-function! claude#workspace#cwd() abort
-  let l:ws = claude#workspace#current()
+function! kimi#workspace#cwd() abort
+  let l:ws = kimi#workspace#current()
   return empty(l:ws) ? getcwd() : l:ws.path
 endfunction
 
 " ── the picker ───────────────────────────────────────────────────────────────
 
-" g:claude_no_popup forces the inputlist() path, as it does for the session
-" picker.
 function! s:use_popup() abort
-  return has('popupwin') && !get(g:, 'claude_no_popup', 0)
+  return has('popupwin')
 endfunction
 
-" :ClaudeWorkspaces — choose the workspace to work in. Selecting one re-roots
+" :KimiWorkspaces — choose the workspace to work in. Selecting one re-roots
 " NERDTree onto it, so the file tree shows that checkout and nothing else.
-function! claude#workspace#pick() abort
-  let l:root = claude#workspace#project_root()
+function! kimi#workspace#pick() abort
+  let l:root = kimi#workspace#project_root()
   if empty(l:root)
     call s:warn('not inside a git worktree')
     return
   endif
 
-  let l:list  = claude#workspace#list()
+  let l:list  = kimi#workspace#list()
   let l:ids   = ['']
   let l:items = ['  ' . fnamemodify(l:root, ':t') . ' (main checkout)']
   for l:rec in l:list
     call add(l:ids, l:rec.id)
     call add(l:items, (l:rec.id ==# s:current ? '* ' : '  ') . l:rec.name
           \ . ' — ' . l:rec.branch
-          \ . ' — ' . claude#sidebar#home_relative(l:rec.path))
+          \ . ' — ' . kimi#sidebar#home_relative(l:rec.path))
   endfor
 
   if s:use_popup()
@@ -545,25 +539,25 @@ function! s:picked(ids, idx) abort
   if a:idx < 1 || a:idx > len(a:ids)
     return
   endif
-  call claude#workspace#select(a:ids[a:idx - 1])
+  call kimi#workspace#select(a:ids[a:idx - 1])
 endfunction
 
 " Make {id} the current workspace and point NERDTree at it. '' selects the
 " main checkout again.
-function! claude#workspace#select(id) abort
-  if !claude#workspace#set_current(a:id)
+function! kimi#workspace#select(id) abort
+  if !kimi#workspace#set_current(a:id)
     call s:warn('unknown workspace: ' . a:id)
     return
   endif
-  let l:ws  = claude#workspace#current()
-  let l:dir = empty(l:ws) ? claude#workspace#project_root() : l:ws.path
+  let l:ws  = kimi#workspace#current()
+  let l:dir = empty(l:ws) ? kimi#workspace#project_root() : l:ws.path
   call s:reroot(l:dir)
 endfunction
 
 " Re-root NERDTree onto {dir} without disturbing the sidebar column or the
 " window the user was in.
 function! s:reroot(dir) abort
-  if !claude#sidebar#nerdtree_available()
+  if !kimi#sidebar#nerdtree_available()
     call s:warn('NERDTree is not installed; workspace selected anyway')
     return
   endif
@@ -576,7 +570,7 @@ function! s:reroot(dir) abort
   catch
     call s:warn('could not re-root NERDTree: ' . v:exception)
   finally
-    call claude#sidebar#stack()
+    call kimi#sidebar#stack()
     if win_id2win(l:cur) > 0 && win_getid() != l:cur
       call win_gotoid(l:cur)
     endif
@@ -588,7 +582,7 @@ endfunction
 
 " ── test seam ────────────────────────────────────────────────────────────────
 
-function! claude#workspace#_reset() abort
+function! kimi#workspace#_reset() abort
   let s:current    = ''
   let s:root_cache = {}
 endfunction

@@ -1,1 +1,0 @@
-../../.pi/extensions/claude-vim-status.ts

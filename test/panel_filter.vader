@@ -2,30 +2,28 @@
 " so finding one is typing part of it rather than folding down to it.
 
 Before:
-  call claude#session#_reset()
-  call claude#panel#_reset()
-  call claude#store#_reset()
-  let g:_saved_store = get(g:, 'claude_session_store', '')
+  call kimi#session#_reset()
+  call kimi#panel#_reset()
+  call kimi#store#_reset()
   let g:_saved_cwd   = getcwd()
   let g:_dir = tempname()
   call mkdir(g:_dir, 'p')
-  let g:claude_session_store = g:_dir . '/sessions.json'
+  call kimi#store#_set_root(g:_dir)
   execute 'cd ' . fnameescape(g:_dir)
 
 After:
   execute 'cd ' . fnameescape(g:_saved_cwd)
-  call claude#panel#_reset()
-  call claude#session#_reset()
-  call claude#store#_reset()
-  let g:claude_session_store = g:_saved_store
+  call kimi#panel#_reset()
+  call kimi#session#_reset()
+  call kimi#store#_reset()
   call delete(g:_dir, 'rf')
   only
 
 " The / key prompts for the string; these set it directly and check the key
 " separately, so that no test depends on driving an input() prompt.
 Execute (/ is the key that asks for one):
-  call claude#panel#open()
-  call win_gotoid(bufwinid(claude#panel#bufnr()))
+  call kimi#panel#open()
+  call win_gotoid(bufwinid(kimi#panel#bufnr()))
   let m = maparg('/', 'n', 0, 1)
   Assert m.rhs =~# 'prompt_filter', '/ should prompt for a filter'
   Assert m.buffer, 'and only inside the panel'
@@ -33,117 +31,117 @@ Execute (/ is the key that asks for one):
 " ── what it keeps ────────────────────────────────────────────────────────────
 
 Execute (only matching rows are drawn):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#session#_inject({'name': 'panel rework',   'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  let text = join(claude#panel#_lines(), "\n")
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#session#_inject({'name': 'panel rework',   'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'diff tree work', 'the match should stay: ' . text
   Assert text !~# 'panel rework',   'the rest should go'
 
 Execute (matching is case-insensitive and matches anywhere in the label):
-  call claude#session#_inject({'name': 'Diff Tree Work', 'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('tree')
-  Assert join(claude#panel#_lines(), "\n") =~# 'Diff Tree Work'
+  call kimi#session#_inject({'name': 'Diff Tree Work', 'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('tree')
+  Assert join(kimi#panel#_lines(), "\n") =~# 'Diff Tree Work'
 
 Execute (a session is findable by its branch, which the row does not show):
-  call claude#session#_inject({'name': 'nameless work', 'status': 'active',
+  call kimi#session#_inject({'name': 'nameless work', 'status': 'active',
         \ 'branch': 'feature/panel-rework'})
-  call claude#panel#open()
-  call claude#panel#_filter('panel-rework')
-  Assert join(claude#panel#_lines(), "\n") =~# 'nameless work',
+  call kimi#panel#open()
+  call kimi#panel#_filter('panel-rework')
+  Assert join(kimi#panel#_lines(), "\n") =~# 'nameless work',
         \ 'the filter matches what a row could be recognised by'
 
 Execute (and by its workspace):
-  call claude#session#_inject({'name': 'over there', 'status': 'active',
+  call kimi#session#_inject({'name': 'over there', 'status': 'active',
         \ 'workspace': 'feature-git-diff-tree'})
-  call claude#panel#open()
-  call claude#panel#_filter('git-diff')
-  Assert join(claude#panel#_lines(), "\n") =~# 'over there'
+  call kimi#panel#open()
+  call kimi#panel#_filter('git-diff')
+  Assert join(kimi#panel#_lines(), "\n") =~# 'over there'
 
 Execute (a group left with nothing in it is not drawn):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#session#_inject({'name': 'panel rework',   'status': 'idle'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  let text = join(claude#panel#_lines(), "\n")
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#session#_inject({'name': 'panel rework',   'status': 'idle'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'Working (1)', 'the group with the match stays: ' . text
   Assert text !~# 'Idle',        'the one without it goes'
 
 Execute (nothing matching says so):
-  call claude#session#_inject({'name': 'panel rework', 'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('nothing like this')
-  Assert index(claude#panel#_lines(), '  (nothing matches)') >= 0
+  call kimi#session#_inject({'name': 'panel rework', 'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('nothing like this')
+  Assert index(kimi#panel#_lines(), '  (nothing matches)') >= 0
 
 " ── what it overrides ────────────────────────────────────────────────────────
 
 Execute (a fold that hid a match is opened):
-  call claude#session#_inject({'name': 'old diff work', 'status': 'closed'})
-  call claude#panel#open()
-  Assert join(claude#panel#_lines(), "\n") !~# 'old diff work',
+  call kimi#session#_inject({'name': 'old diff work', 'status': 'closed'})
+  call kimi#panel#open()
+  Assert join(kimi#panel#_lines(), "\n") !~# 'old diff work',
         \ 'Done starts folded'
-  call claude#panel#_filter('diff')
-  Assert join(claude#panel#_lines(), "\n") =~# 'old diff work',
+  call kimi#panel#_filter('diff')
+  Assert join(kimi#panel#_lines(), "\n") =~# 'old diff work',
         \ 'a fold that hides a match would make the filter a lie'
 
 Execute (the hide rule stands down for a row asked for by name):
-  call claude#session#_inject({'id': 'anon', 'name': '', 'named': 0,
+  call kimi#session#_inject({'id': 'anon', 'name': '', 'named': 0,
         \ 'snippet': 'rework the diff tree', 'status': 'closed'})
-  call claude#panel#open()
-  Assert join(claude#panel#_lines(), "\n") !~# 'rework the diff tree',
+  call kimi#panel#open()
+  Assert join(kimi#panel#_lines(), "\n") !~# 'rework the diff tree',
         \ 'buried: nobody named it'
-  call claude#panel#_filter('rework')
-  Assert join(claude#panel#_lines(), "\n") =~# 'rework the diff tree',
+  call kimi#panel#_filter('rework')
+  Assert join(kimi#panel#_lines(), "\n") =~# 'rework the diff tree',
         \ 'you asked for it by name, so burying it would be perverse'
 
 Execute (the place view filters the same way, pruning what is left empty):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active',
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active',
         \ 'project': '/w/alpha', 'worktree': '/w/alpha', 'branch': 'main'})
-  call claude#session#_inject({'name': 'panel rework', 'status': 'active',
+  call kimi#session#_inject({'name': 'panel rework', 'status': 'active',
         \ 'project': '/w/beta', 'worktree': '/w/beta', 'branch': 'main'})
-  call claude#panel#open()
-  call claude#panel#_grouping('place')
-  call claude#panel#_filter('diff')
-  let text = join(claude#panel#_lines(), "\n")
+  call kimi#panel#open()
+  call kimi#panel#_grouping('place')
+  call kimi#panel#_filter('diff')
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'alpha', 'the project holding the match stays: ' . text
   Assert text !~# 'beta',  'the other project goes with its sessions'
 
 " ── the header, and clearing ─────────────────────────────────────────────────
 
 Execute (the header says what is being filtered on):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  Assert claude#panel#_lines()[0] =~# '/diff$',
-        \ 'the filter replaces the count: ' . claude#panel#_lines()[0]
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  Assert kimi#panel#_lines()[0] =~# '/diff$',
+        \ 'the filter replaces the count: ' . kimi#panel#_lines()[0]
 
 Execute (an empty answer clears it):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#session#_inject({'name': 'panel rework',   'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework'
-  call claude#panel#_filter('')
-  let text = join(claude#panel#_lines(), "\n")
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#session#_inject({'name': 'panel rework',   'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework'
+  call kimi#panel#_filter('')
+  let text = join(kimi#panel#_lines(), "\n")
   Assert text =~# 'panel rework', 'everything is back: ' . text
   Assert text =~# 'diff tree work'
-  Assert claude#panel#_lines()[0] =~# '(2)$', 'and so is the count'
+  Assert kimi#panel#_lines()[0] =~# '(2)$', 'and so is the count'
 
 Execute (a filter survives a redraw):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#session#_inject({'name': 'panel rework',   'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  call claude#panel#refresh()
-  Assert join(claude#panel#_lines(), "\n") !~# 'panel rework',
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#session#_inject({'name': 'panel rework',   'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  call kimi#panel#refresh()
+  Assert join(kimi#panel#_lines(), "\n") !~# 'panel rework',
         \ 'the filter is state, not a one-off draw'
 
 Execute (a reset clears it):
-  call claude#session#_inject({'name': 'diff tree work', 'status': 'active'})
-  call claude#panel#open()
-  call claude#panel#_filter('diff')
-  call claude#panel#_reset()
-  call claude#panel#open()
-  Assert claude#panel#_lines()[0] !~# '/diff'
+  call kimi#session#_inject({'name': 'diff tree work', 'status': 'active'})
+  call kimi#panel#open()
+  call kimi#panel#_filter('diff')
+  call kimi#panel#_reset()
+  call kimi#panel#open()
+  Assert kimi#panel#_lines()[0] !~# '/diff'
