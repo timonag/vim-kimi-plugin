@@ -56,6 +56,15 @@ Execute (the terminal buffer is tagged with its session id):
   let rec = kimi#session#get(id)
   AssertEqual id, getbufvar(rec.bufnr, 'kimi_session_id', '')
 
+Execute (the scroll wheel scrolls the buffer instead of reaching the CLI):
+  let id = kimi#session#new('wheel')
+  let rec = kimi#session#get(id)
+  execute 'buffer ' . rec.bufnr
+  AssertEqual '<C-W>N<ScrollWheelUp>', maparg('<ScrollWheelUp>', 't')
+  AssertEqual '<C-W>N<ScrollWheelDown>', maparg('<ScrollWheelDown>', 't')
+  let info = maparg('<ScrollWheelUp>', 't', 0, 1)
+  Assert info.buffer, 'the mapping must be buffer-local'
+
 Execute (the name is persisted to the store immediately):
   let id = kimi#session#new('remembered')
   let data = kimi#store#load()

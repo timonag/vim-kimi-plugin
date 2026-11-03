@@ -42,7 +42,7 @@ Or copy `plugin/kimi.vim`, `autoload/kimi.vim`, and `autoload/kimi/` into your p
 
 Starting a session without naming it on the command line asks for a branch first, and gives the session its own checkout of that branch — see [Workspaces](#workspaces).
 
-Inside the kimi terminal, press `<Esc><Esc>` to enter terminal-normal mode (so Vim handles the cursor and mouse). Single `<Esc>` is passed through to the CLI (interrupt, close popup).
+Inside the kimi terminal, press `<Esc><Esc>` to enter terminal-normal mode (so Vim handles the cursor and mouse). Scrolling with the mouse wheel enters that mode automatically; press `i` to hand the keyboard back to the CLI. Single `<Esc>` is passed through to the CLI (interrupt, close popup).
 
 ## Input window
 

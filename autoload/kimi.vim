@@ -202,6 +202,12 @@ function! kimi#apply_buf_options(id) abort
   " so Vim regains mouse ownership and selection stays within this window.
   " Single Esc is left unbound so it reaches the CLI (interrupt, close popup).
   tnoremap <buffer> <Esc><Esc> <C-\><C-n>
+  " The scroll wheel reaches the terminal job in this mode and the CLI
+  " ignores it, so wheel-scrolling would be a no-op. Switch to
+  " terminal-normal mode and let Vim scroll the scrollback instead; 'i'
+  " returns to the CLI.
+  tnoremap <buffer> <ScrollWheelUp>   <C-W>N<ScrollWheelUp>
+  tnoremap <buffer> <ScrollWheelDown> <C-W>N<ScrollWheelDown>
 endfunction
 
 " Enter terminal-insert mode, using feedkeys so the mode switch happens after

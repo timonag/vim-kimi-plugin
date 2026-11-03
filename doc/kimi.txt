@@ -88,8 +88,9 @@ first, and gives the session its own checkout of that branch — see
 |kimi-workspaces|.
 
 Inside the kimi terminal, press <Esc><Esc> to enter terminal-normal mode (so
-Vim handles the cursor and mouse). Single <Esc> is passed through to the CLI
-(interrupt, close popup).
+Vim handles the cursor and mouse). Scrolling with the mouse wheel enters that
+mode automatically; press i to hand the keyboard back to the CLI. Single
+<Esc> is passed through to the CLI (interrupt, close popup).
 
 ===============================================================================
 4. INPUT WINDOW                                               *kimi-input-window*
